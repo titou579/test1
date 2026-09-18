@@ -38,17 +38,14 @@ function getSession() {
     try {
       const data = JSON.parse(decodeURIComponent(location.hash.slice(1)));
       if (data.token && data.user) {
-        // Store it for later use
         SafeStorage.set('sod_token', data.token);
         SafeStorage.set('sod_user', JSON.stringify(data.user));
         return { token: data.token, user: data.user };
       }
     } catch(e) {}
   }
-  // Fallback to SafeStorage (localStorage or memStore)
   let token = SafeStorage.get('sod_token');
   let userStr = SafeStorage.get('sod_user');
-  // Fallback to cookies
   if (!token) {
     try {
       const cookies = document.cookie.split(';').map(c => c.trim());
@@ -64,8 +61,6 @@ function getSession() {
 let SHOP_CACHE = [];
 
 // ===== MODALE D'ACTION ADMIN GÉNÉRIQUE =====
-// Remplace les prompt() natifs par une vraie fenêtre avec champs (nombre, mot de
-// passe, liste déroulante...). fields: [{id,label,type,value,min,max,options}]
 function openAdminModal({ title, desc, fields, submitLabel, onSubmit }) {
   const modal = document.getElementById('adminActionModal');
   const descEl = document.getElementById('adminActionDesc');
@@ -395,10 +390,23 @@ document.getElementById('btnClearItem')?.addEventListener('click', () => {
 });
 
 // ===== BATTLE PASS =====
+// [FIX] Cache local séparé pour éviter la réassignation de loadBattlePassAdmin
+let _bpTiersCache = [];
+
+function getCurrentBPTier(tier) {
+  return _bpTiersCache.find(t => t.tier === tier);
+}
+
+// Charge les paliers depuis le serveur, met à jour le cache, puis affiche
 async function loadBattlePassAdmin() {
   const { token } = getSession();
   const d = await API.get('/api/admin/battlepass', token);
-  const tiers = d.tiers || [];
+  _bpTiersCache = d.tiers || [];
+  renderBattlePassAdmin(_bpTiersCache);
+}
+
+// Rendu HTML des paliers (séparé de la récupération)
+function renderBattlePassAdmin(tiers) {
   const container = document.getElementById('bpTiers');
   if (!container) return;
   container.innerHTML = tiers.map(t => {
@@ -442,17 +450,14 @@ async function loadBattlePassAdmin() {
 
 window.updateBPTier = function(tier, path, value) {
   const { token } = getSession();
-  // Build the patch object from dot path
   const parts = path.split('.');
   const patch = {};
   let cur = patch;
   for (let i = 0; i < parts.length - 1; i++) { cur[parts[i]] = {}; cur = cur[parts[i]]; }
-  // Convert value
   let val = value;
   if (parts[parts.length - 1] === 'amount' || parts[parts.length - 1] === 'xpRequired') val = Number(val);
   if (value === '') val = null;
   cur[parts[parts.length - 1]] = val;
-  // For reward type changes, send full reward object
   if (path === 'reward.type') {
     patch.reward = { type: value, amount: value === 'currency' ? 50 : undefined, itemId: value === 'item' ? '' : undefined };
     if (value === 'currency') { patch.reward.amount = 50; delete patch.reward.itemId; }
@@ -462,7 +467,6 @@ window.updateBPTier = function(tier, path, value) {
     else if (value === 'currency') { patch.premiumReward = { type: 'currency', amount: 100 }; }
     else { patch.premiumReward = { type: 'item', itemId: '' }; }
   } else if (path.startsWith('reward.')) {
-    // Need to send full reward
     const tierData = getCurrentBPTier(tier);
     if (tierData) {
       const r = { ...tierData.reward };
@@ -484,11 +488,6 @@ window.updateBPTier = function(tier, path, value) {
     loadBattlePassAdmin();
   });
 };
-
-let _bpTiersCache = [];
-function getCurrentBPTier(tier) {
-  return _bpTiersCache.find(t => t.tier === tier);
-}
 
 window.removeBPTier = function(tier) {
   if (!confirm(`Supprimer le palier ${tier} ?`)) return;
@@ -638,12 +637,3 @@ document.getElementById('btnAnnounce')?.addEventListener('click', () => {
     document.getElementById('announceText').value = '';
   });
 });
-
-// Cache BP tiers for updateBPTier
-const _origLoadBP = loadBattlePassAdmin;
-loadBattlePassAdmin = async function() {
-  const { token } = getSession();
-  const d = await API.get('/api/admin/battlepass', token);
-  _bpTiersCache = d.tiers || [];
-  return _origLoadBP();
-};
