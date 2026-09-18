@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Swap or Die — En jeu</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="css/style.css">
+<script>
+  // window.BACKEND is auto-detected in game.js from the socket.io.js script tag
+  window.BACKEND = '';
+</script>
+<style>
+  html, body { overflow: hidden; background: #000; margin: 0; }
+  #canvasHolder { position: fixed; inset: 0; }
+  #canvasHolder canvas { display: block; width: 100%; height: 100%; }
+
+  .hud { position: fixed; inset: 0; pointer-events: none; font-family: inherit; }
+  .hud * { pointer-events: auto; }
+
+  /* ===== TOP BAR ===== */
+  #topBar {
+    position: absolute; top: 14px; left: 14px; right: 14px;
+    display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;
+  }
+  #lobbyInfo {
+    background: rgba(8, 14, 24, 0.8); border: 1px solid rgba(77, 163, 255, 0.3);
+    border-radius: 12px; padding: 10px 18px; backdrop-filter: blur(8px);
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  #lobbyInfo .room-code { font-weight: 700; font-size: 15px; color: var(--accent); }
+  #lobbyInfo .room-phase { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+
+  #swapTimer {
+    background: rgba(8, 14, 24, 0.85); border: 1px solid rgba(77, 163, 255, 0.4);
+    border-radius: 14px; padding: 8px 24px; text-align: center;
+    backdrop-filter: blur(8px); transition: all 0.2s;
+  }
+  #swapTimer.urgent {
+    border-color: #ff5b6a; background: rgba(60, 10, 15, 0.9);
+    animation: pulse-urgent 0.6s ease-in-out infinite;
+  }
+  @keyframes pulse-urgent {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255, 91, 106, 0.4); }
+    50% { box-shadow: 0 0 20px 4px rgba(255, 91, 106, 0.3); }
+  }
+  #swapTimer .num { font-size: 28px; font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
+  #swapTimer.urgent .num { color: #ff5b6a; }
+  #swapTimer .lbl { font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
+
+  /* ===== MINIMAP ===== */
+  #minimap {
+    position: absolute; top: 14px; right: 14px;
+    background: rgba(8, 14, 24, 0.8); border: 1px solid rgba(77, 163, 255, 0.25);
+    border-radius: 12px; padding: 6px; backdrop-filter: blur(8px);
+  }
+  #minimapCanvas { border-radius: 8px; display: block; }
+
+  /* ===== HP / RESOURCES ===== */
+  #hpWrap { position: absolute; bottom: 18px; left: 18px; width: 280px; }
+  #livesBox { font-size: 14px; letter-spacing: 2px; margin-bottom: 4px; }
+  #livesBox .heart { color: #ff5b6a; text-shadow: 0 0 6px rgba(255, 91, 106, 0.5); }
+  #livesBox .heart.lost { opacity: 0.2; filter: grayscale(1); text-shadow: none; }
+
+  #hpBar {
+    height: 18px; border-radius: 10px; background: rgba(8, 14, 24, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.1); overflow: hidden; position: relative;
+  }
+  #hpFill {
+    height: 100%; background: linear-gradient(90deg, #ff5b6a, #ff9f5b);
+    width: 100%; transition: width 0.2s; border-radius: 10px;
+  }
+  #hpText {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    font-size: 11px; font-weight: 700; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+  }
+
+  #resBox { display: flex; gap: 8px; margin-top: 8px; }
+  #resBox .res-item {
+    background: rgba(8, 14, 24, 0.75); border: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 5px 12px; border-radius: 8px; font-size: 13px; font-weight: 600;
+    display: flex; align-items: center; gap: 5px;
+  }
+  #resBox .res-item .icon { font-size: 14px; }
+  #totemBox {
+    margin-top: 6px; font-size: 13px; color: var(--gold);
+    background: rgba(8, 14, 24, 0.75); border: 1px solid rgba(255, 210, 77, 0.2);
+    padding: 4px 12px; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px;
+  }
+
+  /* ===== STAMINA ===== */
+  #staminaWrap {
+    position: absolute; bottom: 62px; left: 18px; width: 280px;
+  }
+  #staminaBar {
+    height: 5px; border-radius: 3px; background: rgba(8, 14, 24, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.05); overflow: hidden;
+  }
+  #staminaFill {
+    height: 100%; background: linear-gradient(90deg, #7be0c0, #4dd6ff);
+    width: 100%; transition: width 0.15s; border-radius: 3px;
+  }
+
+  /* ===== WEAPON BOX ===== */
+  #weaponBox {
+    position: absolute; bottom: 18px; right: 18px;
+    background: rgba(8, 14, 24, 0.8); border: 1px solid rgba(77, 163, 255, 0.2);
+    border-radius: 12px; padding: 12px 18px; text-align: right;
+    backdrop-filter: blur(8px); min-width: 160px;
+  }
+  #weaponBox .weapon-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; }
+  #weaponBox .weapon-name { font-weight: 700; font-size: 16px; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+  #weaponBox .weapon-icon { font-size: 22px; }
+  #voiceBtn { margin-top: 8px; width: 100%; }
+
+  /* ===== CROSSHAIR ===== */
+  #crosshair {
+    position: absolute; top: 50%; left: 50%; width: 24px; height: 24px;
+    margin: -12px; pointer-events: none;
+  }
+  #crosshair::before, #crosshair::after {
+    content: ''; position: absolute; background: rgba(255, 255, 255, 0.8);
+    box-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+  }
+  #crosshair::before { top: 50%; left: 0; width: 100%; height: 2px; margin-top: -1px; }
+  #crosshair::after { left: 50%; top: 0; width: 2px; height: 100%; margin-left: -1px; }
+  #crosshair .dot {
+    position: absolute; top: 50%; left: 50%; width: 4px; height: 4px;
+    margin: -2px; border-radius: 50%; background: var(--accent);
+    box-shadow: 0 0 6px var(--accent);
+  }
+
+  /* ===== CHAT ===== */
+  #chatBox { position: absolute; bottom: 18px; left: 310px; width: 340px; max-width: 38vw; }
+  #chatLog {
+    height: 140px; overflow-y: auto; background: rgba(8, 14, 24, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 10px;
+    padding: 8px 12px; font-size: 13px; margin-bottom: 6px;
+  }
+  #chatLog .sys { color: var(--muted); font-style: italic; }
+  #chatLog .me b { color: var(--accent); }
+  #chatInputRow { display: flex; gap: 6px; }
+  #chatInput { flex: 1; background: rgba(8, 14, 24, 0.8); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; padding: 8px 12px; color: var(--text); font-size: 13px; }
+
+  /* ===== NOTIFICATIONS ===== */
+  #notifStack {
+    position: absolute; top: 90px; right: 170px;
+    display: flex; flex-direction: column; gap: 8px; width: 280px;
+  }
+  .notif {
+    background: rgba(8, 14, 24, 0.88); border-left: 4px solid var(--accent);
+    border-radius: 8px; padding: 10px 14px; font-size: 13px;
+    animation: slideIn 0.25s ease; transition: opacity 0.3s;
+    backdrop-filter: blur(6px);
+  }
+  .notif.bad { border-color: var(--danger); }
+  .notif.good { border-color: var(--accent-2); }
+  @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+
+  /* ===== CENTER MSG ===== */
+  #centerMsg {
+    position: absolute; top: 35%; left: 50%; transform: translate(-50%, -50%);
+    text-align: center; font-size: 36px; font-weight: 800;
+    text-shadow: 0 4px 24px rgba(0, 0, 0, 0.7);
+    animation: centerPop 0.3s ease;
+  }
+  @keyframes centerPop { from { opacity: 0; transform: translate(-50%, -50%) scale(0.8); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+
+  /* ===== START OVERLAY ===== */
+  #startOverlay {
+    position: absolute; inset: 0; background: rgba(6, 10, 18, 0.92);
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 16px; backdrop-filter: blur(4px);
+  }
+  #startOverlay h2 { font-size: 24px; }
+  #startOverlay p { color: var(--muted); }
+
+  /* ===== ACTION HINT ===== */
+  #actionHint {
+    position: absolute; bottom: 140px; left: 50%; transform: translateX(-50%);
+    background: rgba(8, 14, 24, 0.85); border: 1px solid rgba(77, 163, 255, 0.3);
+    padding: 8px 18px; border-radius: 10px; font-size: 13px; font-weight: 600;
+    backdrop-filter: blur(6px); animation: hintBob 1.5s ease-in-out infinite;
+  }
+  @keyframes hintBob { 0%, 100% { transform: translateX(-50%) translateY(0); } 50% { transform: translateX(-50%) translateY(-3px); } }
+
+  /* ===== KEY HINTS ===== */
+  #keyHints {
+    position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 6px; font-size: 11px; color: var(--muted);
+    flex-wrap: wrap; justify-content: center; max-width: 90vw;
+  }
+  #keyHints span {
+    background: rgba(8, 14, 24, 0.7); border: 1px solid rgba(255, 255, 255, 0.06);
+    padding: 4px 10px; border-radius: 6px; backdrop-filter: blur(4px);
+  }
+  #keyHints kbd {
+    display: inline-block; background: rgba(255, 255, 255, 0.1);
+    padding: 1px 5px; border-radius: 3px; font-size: 10px; margin-right: 3px;
+    color: var(--text); font-family: monospace;
+  }
+
+  /* ===== CRAFT MENU ===== */
+  #craftMenu {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 380px; background: rgba(8, 14, 24, 0.95);
+    border: 1px solid rgba(77, 163, 255, 0.3); border-radius: 16px;
+    padding: 22px; backdrop-filter: blur(12px); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  }
+  #craftMenu h3 { margin-top: 0; }
+  .recipe {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  }
+  .recipe:last-child { border-bottom: none; }
+  .recipe .cost { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  /* ===== LEADERBOARD ===== */
+  #leaderboard {
+    position: absolute; top: 90px; left: 50%; transform: translateX(-50%);
+    background: rgba(8, 14, 24, 0.92); border: 1px solid rgba(255, 210, 77, 0.2);
+    border-radius: 12px; padding: 16px 22px; min-width: 280px;
+    backdrop-filter: blur(8px);
+  }
+  #leaderboard h4 { margin: 0 0 10px 0; text-align: center; }
+  #leaderboard table { width: 100%; font-size: 13px; border-collapse: collapse; }
+  #leaderboard th, #leaderboard td { text-align: left; padding: 4px 10px; }
+  #leaderboard th { color: var(--muted); font-size: 10px; text-transform: uppercase; }
+
+  /* ===== ELIMINATED BANNER ===== */
+  #eliminatedBanner {
+    position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%);
+    background: rgba(80, 15, 25, 0.92); border: 1px solid #ff5b6a;
+    border-radius: 12px; padding: 14px 24px;
+    display: flex; align-items: center; gap: 16px;
+    backdrop-filter: blur(8px);
+  }
+
+  /* ===== MATCH END ===== */
+  #matchEndOverlay {
+    position: absolute; inset: 0; background: rgba(6, 10, 18, 0.96);
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 18px; z-index: 20; backdrop-filter: blur(6px);
+  }
+  #matchEndOverlay h2 { font-size: 32px; }
+  #matchEndOverlay table { width: 380px; max-width: 80vw; border-collapse: collapse; font-size: 14px; }
+  #matchEndOverlay th, #matchEndOverlay td { text-align: left; padding: 8px 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+  #matchEndOverlay th { color: var(--muted); font-size: 10px; text-transform: uppercase; }
+</style>
+</head>
+<body>
+<div id="canvasHolder"></div>
+
+<div class="hud">
+  <!-- START OVERLAY -->
+  <div id="startOverlay">
+    <h2 id="startTitle">Connexion au salon…</h2>
+    <p id="startSub"></p>
+    <div id="hostControls" class="hidden">
+      <button class="btn primary" id="btnStartMatch">Démarrer la partie</button>
+    </div>
+    <button class="btn ghost" onclick="location.href='index.html'">← Retour au menu</button>
+  </div>
+
+  <!-- CRAFT MENU -->
+  <div id="craftMenu" class="hidden">
+    <h3>🛠️ Fabrication</h3>
+    <div id="recipeList"></div>
+    <p style="color:var(--muted); font-size:11px; margin-top:12px;">Appuie de nouveau sur C pour fermer</p>
+  </div>
+
+  <!-- LEADERBOARD -->
+  <div id="leaderboard" class="hidden">
+    <h4>🏆 Classement du salon</h4>
+    <table>
+      <thead><tr><th>Joueur</th><th>Élim.</th><th>Morts</th></tr></thead>
+      <tbody id="leaderboardBody"></tbody>
+    </table>
+  </div>
+
+  <!-- TOP BAR -->
+  <div id="topBar" class="hidden">
+    <div id="lobbyInfo">
+      <div class="room-code" id="roomCodeLabel"></div>
+      <div class="room-phase"><span id="roomMapLabel"></span> · <span id="roomPhaseLabel"></span></div>
+    </div>
+    <div id="swapTimer">
+      <div class="num" id="swapNum">--</div>
+      <div class="lbl">avant le SWAP</div>
+    </div>
+    <button class="btn danger small" id="leaveBtn">Quitter</button>
+  </div>
+
+  <!-- MINIMAP -->
+  <div id="minimap" class="hidden">
+    <canvas id="minimapCanvas" width="140" height="140"></canvas>
+    <button class="btn small" id="btnAddBot" style="margin-top:6px; font-size:11px; width:100%;">🤖 + Bot</button>
+  </div>
+
+  <!-- CROSSHAIR -->
+  <div id="crosshair" class="hidden"><div class="dot"></div></div>
+
+  <!-- ACTION HINT -->
+  <div id="actionHint" class="hidden"></div>
+
+  <!-- CENTER MSG -->
+  <div id="centerMsg" class="hidden"></div>
+
+  <!-- NOTIFICATIONS -->
+  <div id="notifStack"></div>
+
+  <!-- HP / RESOURCES -->
+  <div id="hpWrap" class="hidden">
+    <div id="livesBox"></div>
+    <div id="hpBar">
+      <div id="hpFill"></div>
+      <span id="hpText">100 / 100</span>
+    </div>
+    <div id="resBox">
+      <span class="res-item"><span class="icon">🪵</span> <span id="resBois">0</span></span>
+      <span class="res-item"><span class="icon">🪨</span> <span id="resPierre">0</span></span>
+    </div>
+    <div id="totemBox">🛡️ Totems : <span id="totemCount">0</span></div>
+  </div>
+
+  <!-- STAMINA -->
+  <div id="staminaWrap" class="hidden">
+    <div id="staminaBar"><div id="staminaFill"></div></div>
+  </div>
+
+  <!-- ELIMINATED -->
+  <div id="eliminatedBanner" class="hidden">
+    <span>☠️ Tu as été éliminé. Tu peux observer la fin de la partie.</span>
+    <button class="btn small danger" id="btnLeaveAfterElim">Quitter</button>
+  </div>
+
+  <!-- MATCH END -->
+  <div id="matchEndOverlay" class="hidden">
+    <h2 id="matchEndTitle">Partie terminée</h2>
+    <p id="matchEndSub" style="color:var(--muted)"></p>
+    <table>
+      <thead><tr><th>Joueur</th><th>Éliminations</th><th>Morts</th></tr></thead>
+      <tbody id="matchEndStandings"></tbody>
+    </table>
+    <button class="btn primary" onclick="location.href='index.html'">← Retour au menu</button>
+  </div>
+
+  <!-- WEAPON BOX -->
+  <div id="weaponBox" class="hidden">
+    <div class="weapon-label">ARME</div>
+    <div class="weapon-name">
+      <span class="weapon-icon" id="weaponIcon">✊</span>
+      <span id="weaponName">Poings</span>
+    </div>
+    <button class="btn small" id="voiceBtn">🎙️ Voix</button>
+  </div>
+
+  <!-- CHAT -->
+  <div id="chatBox" class="hidden">
+    <div id="chatLog"></div>
+    <div id="chatInputRow">
+      <input id="chatInput" placeholder="Écrire un message... (Entrée pour envoyer)">
+    </div>
+  </div>
+
+  <!-- KEY HINTS -->
+  <div id="keyHints" class="hidden">
+    <span><kbd>WASD</kbd>Bouger</span>
+    <span><kbd>Espace</kbd>Saut</span>
+    <span><kbd>Shift</kbd>Sprint</span>
+    <span><kbd>←→↑↓</kbd>Caméra</span>
+    <span><kbd>Q/Clic G</kbd>Attaque</span>
+    <span><kbd>Clic D</kbd>Caméra</span>
+    <span><kbd>E</kbd>Interagir</span>
+    <span><kbd>T</kbd>Piège</span>
+    <span><kbd>C</kbd>Craft</span>
+    <span><kbd>G/F</kbd>Emote</span>
+    <span><kbd>Tab</kbd>Classement</span>
+  </div>
+
+  <!-- SWAP FLASH OVERLAY -->
+  <div id="swapFlash" style="position:absolute;inset:0;pointer-events:none;z-index:50;opacity:0;transition:opacity 0.15s;"></div>
+  <!-- VIGNETTE OVERLAY -->
+  <div id="vignette" style="position:absolute;inset:0;pointer-events:none;z-index:49;box-shadow:inset 0 0 200px rgba(0,0,0,0.5);opacity:0;transition:opacity 0.5s;"></div>
+</div>
+
+<script src="port/3000/socket.io/socket.io.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="js/toast.js"></script>
+<script src="js/voice.js"></script>
+<script src="js/sfx.js"></script>
+<script src="js/game.js"></script>
+<script data-pplx-inline-edit>
+(function () {
+  if (window === window.top) return;
+
+  const allowedParentOrigins = ["https://www.perplexity.ai","https://perplexity.ai","https://testing.perplexity.ai","https://staging.perplexity.ai","https://*.preview.i.perplexity.ai","http://perplexity.localhost","http://localhost:1420","http://127.0.0.1:1420","http://localhost:3000","http://127.0.0.1:3000","http://localhost:5173","http://127.0.0.1:5173"];
+  const MAX_FONT_BYTES = 500 * 1024;
+  const MAX_TOTAL_FONT_BYTES = 2 * 1024 * 1024;
+  let scrollForwarding = false;
+  let scrollRaf = 0;
+  let trustedTopOrigin = null;
+
+  // Allow entries like "https://*.preview.i.perplexity.ai" — the wildcard
+  // matches a single DNS label (no dots), so "https://*.foo" cannot stretch
+  // across multiple labels.
+  function matchesAllowedOrigin(origin) {
+    if (!origin) return false;
+    for (const entry of allowedParentOrigins) {
+      if (!entry.includes("*")) {
+        if (entry === origin) return true;
+        continue;
+      }
+      const pattern = new RegExp(
+        "^" +
+          entry.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[^.]+") +
+          "$",
+      );
+      if (pattern.test(origin)) return true;
+    }
+    return false;
+  }
+
+  // Trust decision: when the sender is same-origin-visible (event.origin is a
+  // real origin like https://www.perplexity.ai) we trust event.origin directly.
+  // When event.origin is "null" (opaque broker srcdoc), we fall back to the
+  // broker's stamped `parentOrigin` to identify the top window. The fallback
+  // is claim-only — we rely on the browser's native `targetOrigin` enforcement
+  // on the response path (see postToTrustedTop) to ensure replies can't be
+  // delivered to anyone but the actual top window of that claimed origin.
+  function getTrustedParentOrigin(event) {
+    const forwardedParentOrigin =
+      typeof event.data.parentOrigin === "string" ? event.data.parentOrigin : null;
+    const parentOrigin = event.origin === "null" ? forwardedParentOrigin : event.origin;
+    return matchesAllowedOrigin(parentOrigin) ? parentOrigin : null;
+  }
+
+  // All responses go to window.top with targetOrigin = the allowlisted origin.
+  // An attacker that iframes us inside their own null-origin broker can claim
+  // any parentOrigin they like, but the browser will drop the reply whenever
+  // the real top's origin doesn't match — so the screenshot never leaves.
+  function postToTrustedTop(message) {
+    if (!trustedTopOrigin) return;
+    try {
+      window.top.postMessage(message, trustedTopOrigin);
+    } catch (_error) {}
+  }
+
+  function inlineAll(original, clone) {
+    if (original.nodeType !== 1 || clone.nodeType !== 1) return;
+
+    try {
+      const computedStyle = getComputedStyle(original);
+      // cssText on a computed style is the serialized declaration in modern
+      // Chromium/Safari — a single read beats enumerating ~400 longhand
+      // properties. Firefox returns "" here, so we fall back on empty.
+      const serialized = computedStyle.cssText;
+      if (serialized) {
+        clone.style.cssText = serialized;
+      } else {
+        const parts = new Array(computedStyle.length);
+        for (let index = 0; index < computedStyle.length; index += 1) {
+          const property = computedStyle[index];
+          parts[index] = `${property}:${computedStyle.getPropertyValue(property)};`;
+        }
+        clone.style.cssText = parts.join("");
+      }
+    } catch (_error) {}
+
+    const originalChildren = original.children;
+    const clonedChildren = clone.children;
+    for (
+      let index = 0;
+      index < originalChildren.length && index < clonedChildren.length;
+      index += 1
+    ) {
+      inlineAll(originalChildren[index], clonedChildren[index]);
+    }
+  }
+
+  function extractFontUrl(srcValue) {
+    const matches = [
+      ...srcValue.matchAll(
+        /url\(["']?([^"')]+)["']?\)(?:\s*format\(["']?([^"')]+)["']?\))?/gi,
+      ),
+    ];
+    if (matches.length === 0) return null;
+    const woff2 = matches.find((m) => m[2] && m[2].toLowerCase().includes("woff2"));
+    if (woff2) return woff2[1];
+    const woff = matches.find((m) => m[2] && m[2].toLowerCase().includes("woff"));
+    if (woff) return woff[1];
+    return matches[0][1];
+  }
+
+  // Cache resolved font URL -> data URI across captures. Fonts on a page
+  // essentially never change, and a batch run emits multiple captures back to
+  // back — without this we'd refetch + re-base64 every time.
+  const fontDataUriCache = new Map();
+  const SRC_DECLARATION_RE = /src\s*:\s*[^;}]+/i;
+
+  async function fetchAsDataUri(url) {
+    if (fontDataUriCache.has(url)) return fontDataUriCache.get(url);
+    let dataUri = null;
+    try {
+      const response = await fetch(url, { mode: "cors", credentials: "omit" });
+      if (response.ok) {
+        const blob = await response.blob();
+        if (blob.size <= MAX_FONT_BYTES) {
+          dataUri = await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () =>
+              resolve(typeof reader.result === "string" ? reader.result : null);
+            reader.onerror = () => resolve(null);
+            reader.readAsDataURL(blob);
+          });
+        }
+      }
+    } catch (_error) {
+      dataUri = null;
+    }
+    fontDataUriCache.set(url, dataUri);
+    return dataUri;
+  }
+
+  function collectFontFaceRuleTexts() {
+    const rules = [];
+    for (const sheet of document.styleSheets) {
+      let cssRules;
+      try {
+        cssRules = sheet.cssRules;
+      } catch (_error) {
+        continue;
+      }
+      if (!cssRules) continue;
+      for (const rule of cssRules) {
+        const cssText = rule.cssText || "";
+        if (cssText.startsWith("@font-face")) rules.push(cssText);
+      }
+    }
+    return rules;
+  }
+
+  async function buildInlinedFontCss() {
+    const ruleTexts = collectFontFaceRuleTexts();
+    if (ruleTexts.length === 0) return null;
+
+    const resolved = ruleTexts.map((cssText) => {
+      if (!SRC_DECLARATION_RE.test(cssText)) return null;
+      const srcMatch = cssText.match(/src\s*:\s*([^;}]+)[;}]/i);
+      if (!srcMatch) return null;
+      const url = extractFontUrl(srcMatch[1]);
+      if (!url) return null;
+      try {
+        return { cssText, url: new URL(url, document.baseURI).href };
+      } catch (_error) {
+        return null;
+      }
+    });
+
+    const dataUris = await Promise.all(
+      resolved.map((entry) => (entry ? fetchAsDataUri(entry.url) : Promise.resolve(null))),
+    );
+
+    const inlined = [];
+    let totalBytes = 0;
+    for (let index = 0; index < resolved.length; index += 1) {
+      const entry = resolved[index];
+      const dataUri = dataUris[index];
+      if (!entry || !dataUri) continue;
+      const approxBytes = dataUri.length * 0.75;
+      if (totalBytes + approxBytes > MAX_TOTAL_FONT_BYTES) break;
+      totalBytes += approxBytes;
+      inlined.push(entry.cssText.replace(SRC_DECLARATION_RE, `src: url("${dataUri}")`));
+    }
+    return inlined.length > 0 ? inlined.join("\n") : null;
+  }
+
+  function stripExternal(clone) {
+    const images = clone.querySelectorAll("img");
+    for (let index = 0; index < images.length; index += 1) {
+      const src = images[index].getAttribute("src");
+      if (src && !src.startsWith("data:")) images[index].removeAttribute("src");
+    }
+
+    const elements = clone.querySelectorAll("*");
+    for (let index = 0; index < elements.length; index += 1) {
+      const style = elements[index].style.cssText;
+      if (style && style.includes("url(")) {
+        elements[index].style.cssText = style.replace(
+          /url\(["']?(?!data:)[^)"']*["']?\)/gi,
+          "none",
+        );
+      }
+    }
+  }
+
+  function emitScroll() {
+    scrollRaf = 0;
+    if (!scrollForwarding) return;
+    postToTrustedTop({
+      type: "INLINE_EDIT_SCROLL",
+      scrollX: window.scrollX,
+      scrollY: window.scrollY,
+    });
+  }
+
+  window.addEventListener(
+    "scroll",
+    function () {
+      if (!scrollForwarding || scrollRaf) return;
+      scrollRaf = requestAnimationFrame(emitScroll);
+    },
+    { passive: true, capture: true },
+  );
+
+  async function handleCaptureRequest(event) {
+    const requestId = event.data.requestId;
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+
+    function postResult(dataUrl) {
+      postToTrustedTop({
+        type: "INLINE_EDIT_SCREENSHOT_RESULT",
+        requestId,
+        dataUrl,
+        scrollX,
+        scrollY,
+      });
+    }
+
+    try {
+      // Wait for any pending web fonts to resolve so both inline metrics and
+      // the @font-face inlining below see the same loaded faces.
+      if (document.fonts && document.fonts.ready) {
+        try {
+          await document.fonts.ready;
+        } catch (_error) {}
+      }
+
+      const clone = document.documentElement.cloneNode(true);
+      inlineAll(document.documentElement, clone);
+
+      const removedNodes = clone.querySelectorAll("script,link[rel=\"stylesheet\"],style");
+      for (let index = 0; index < removedNodes.length; index += 1) {
+        removedNodes[index].remove();
+      }
+
+      stripExternal(clone);
+
+      // Re-embed web fonts as data-URI @font-face rules so the SVG rasterizer
+      // can resolve them — external font URLs aren't fetched during
+      // foreignObject rendering, which would otherwise force a fallback face
+      // and change text metrics.
+      const inlinedFontCss = await buildInlinedFontCss();
+      if (inlinedFontCss) {
+        const styleEl = document.createElement("style");
+        styleEl.textContent = inlinedFontCss;
+        const head = clone.querySelector("head");
+        if (head) head.appendChild(styleEl);
+        else clone.insertBefore(styleEl, clone.firstChild);
+      }
+
+      const html = new XMLSerializer().serializeToString(clone);
+      const svg =
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">` +
+        '<foreignObject width="100%" height="100%">' +
+        `<div xmlns="http://www.w3.org/1999/xhtml" style="width:${width}px;height:${height}px;overflow:hidden">` +
+        `<div style="position:relative;left:-${scrollX}px;top:-${scrollY}px">` +
+        html +
+        "</div></div></foreignObject></svg>";
+      const svgUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+      const image = new Image();
+      image.onload = function () {
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext("2d").drawImage(image, 0, 0);
+        postResult(canvas.toDataURL("image/png"));
+      };
+      image.onerror = function () {
+        postResult(null);
+      };
+      image.src = svgUrl;
+    } catch (_error) {
+      postResult(null);
+    }
+  }
+
+  window.addEventListener("message", function (event) {
+    if (!event.data) return;
+    // Only accept messages from the direct parent frame. Blocks sibling /
+    // unrelated-window postMessage senders that could otherwise reach us.
+    if (event.source !== window.parent) return;
+
+    const trustedParentOrigin = getTrustedParentOrigin(event);
+    if (!trustedParentOrigin) return;
+    trustedTopOrigin = trustedParentOrigin;
+
+    if (event.data.type === "INLINE_EDIT_SCROLL_START") {
+      scrollForwarding = true;
+      emitScroll();
+      return;
+    }
+
+    if (event.data.type === "INLINE_EDIT_SCROLL_STOP") {
+      scrollForwarding = false;
+      if (scrollRaf) cancelAnimationFrame(scrollRaf);
+      scrollRaf = 0;
+      return;
+    }
+
+    if (event.data.type !== "INLINE_EDIT_CAPTURE_REQUEST") return;
+
+    handleCaptureRequest(event);
+  });
+})();
+
+
+</script></body>
+</html>

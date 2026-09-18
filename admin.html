@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Swap or Die — Administration</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="css/style.css">
+<script>
+  window.BACKEND = '';
+</script>
+<style>
+  .wrap{ max-width:1200px; margin:0 auto; padding:24px 20px 60px; }
+  header.top{ display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; }
+  nav.tabs{ display:flex; gap:8px; margin-bottom:20px; flex-wrap:wrap; }
+  nav.tabs button{ border:1px solid var(--border); background:var(--panel); color:var(--muted); padding:9px 16px; border-radius:10px; font-weight:600; }
+  nav.tabs button.active{ color:var(--text); border-color:var(--accent); background:var(--panel-2); }
+  table{ width:100%; border-collapse:collapse; font-size:13px; }
+  th,td{ text-align:left; padding:8px 10px; border-bottom:1px solid var(--border); }
+  th{ color:var(--muted); text-transform:uppercase; font-size:11px; letter-spacing:.04em; }
+  .row-actions{ display:flex; gap:6px; flex-wrap:wrap; }
+  .kpis{ display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:14px; margin-bottom:20px; }
+  .kpi{ background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px; }
+  .kpi .num{ font-size:26px; font-weight:800; }
+  .kpi .lbl{ color:var(--muted); font-size:12px; text-transform:uppercase; }
+  .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+  @media (max-width:820px){ .grid2{ grid-template-columns:1fr; } }
+  .shop-editor input, .shop-editor select{ margin-bottom:8px; }
+  .badge-admin{ color: var(--gold); font-weight:700; }
+  .badge-banned{ color: var(--danger); font-weight:700; }
+  .bp-tier-row { display:flex; gap:8px; align-items:center; padding:8px 0; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+  .bp-tier-row .tier-num { font-weight:800; min-width:60px; color:var(--gold); }
+  .bp-tier-row select, .bp-tier-row input { width:auto; min-width:80px; font-size:12px; padding:6px 8px; }
+  .bp-tier-row .bp-actions { display:flex; gap:4px; margin-left:auto; }
+  .user-actions-cell { display:flex; gap:4px; flex-wrap:wrap; }
+  .user-actions-cell button { padding:5px 8px; font-size:11px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="logo" style="font-size:22px;font-weight:800;">🛠️ Panneau Administrateur</div>
+    <div><a href="index.html" class="btn ghost small">← Retour au jeu</a></div>
+  </header>
+
+  <div id="gate" class="card">
+    <h3>Accès administrateur requis</h3>
+    <p style="color:var(--muted)">Connecte-toi avec un compte administrateur depuis la page principale, puis reviens ici.</p>
+    <a href="index.html" class="btn primary">Aller à la connexion</a>
+  </div>
+
+  <div id="panel" class="hidden">
+    <div class="kpis">
+      <div class="kpi"><div class="num" id="kpiUsers">0</div><div class="lbl">Comptes</div></div>
+      <div class="kpi"><div class="num" id="kpiRooms">0</div><div class="lbl">Salons actifs</div></div>
+      <div class="kpi"><div class="num" id="kpiPlayers">0</div><div class="lbl">Joueurs en ligne</div></div>
+      <div class="kpi"><div class="num" id="kpiMonetization">—</div><div class="lbl">Monétisation</div></div>
+    </div>
+
+    <nav class="tabs">
+      <button data-tab="users" class="active">👥 Utilisateurs</button>
+      <button data-tab="shop">🛒 Boutique</button>
+      <button data-tab="battlepass">🎫 Pass de combat</button>
+      <button data-tab="rooms">🌍 Salons</button>
+      <button data-tab="reports">🚩 Signalements</button>
+      <button data-tab="config">⚙️ Configuration</button>
+    </nav>
+
+    <div class="tab" id="tab-users">
+      <div class="card">
+        <div style="display:flex; gap:10px; margin-bottom:14px; align-items:center;">
+          <input id="userSearch" placeholder="Rechercher un pseudo...">
+        </div>
+        <table>
+          <thead><tr><th>Pseudo</th><th>Niveau</th><th>XP</th><th>💎</th><th>Statut</th><th>Actions</th></tr></thead>
+          <tbody id="usersBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tab hidden" id="tab-shop">
+      <div class="grid2">
+        <div class="card">
+          <h3>Articles de la boutique</h3>
+          <table>
+            <thead><tr><th>Nom</th><th>Type</th><th>Prix</th><th>Rareté</th><th>Visible</th><th>Actions</th></tr></thead>
+            <tbody id="shopBody"></tbody>
+          </table>
+        </div>
+        <div class="card shop-editor">
+          <h3 id="shopEditorTitle">Nouvel article</h3>
+          <label>ID unique</label><input id="itId">
+          <label>Nom affiché</label><input id="itName">
+          <label>Type</label>
+          <select id="itType"><option value="skin">Skin</option><option value="trail">Traînée</option><option value="emote">Emote</option><option value="bundle">Pack</option></select>
+          <label>Couleur</label><input id="itColor" type="color" value="#4da3ff">
+          <label>Motif</label>
+          <select id="itPattern"><option value="plain">Uni</option><option value="stripes">Rayures</option><option value="camo">Camouflage</option><option value="scales">Écailles</option></select>
+          <label>Prix (Cristaux)</label><input id="itPrice" type="number" value="100">
+          <label>Rareté</label>
+          <select id="itRarity"><option value="commun">Commun</option><option value="rare">Rare</option><option value="légendaire">Légendaire</option><option value="exclusif">Exclusif</option></select>
+          <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="itAvailable" style="width:auto;"> Visible aux joueurs</label>
+          <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="itPremium" style="width:auto;"> Réservé à la monétisation</label>
+          <div style="display:flex; gap:8px; margin-top:10px;">
+            <button class="btn primary" id="btnSaveItem">Enregistrer</button>
+            <button class="btn ghost" id="btnClearItem">Nouveau</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab hidden" id="tab-battlepass">
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:10px;">
+          <h3>Édition du Pass de combat</h3>
+          <div style="display:flex; gap:8px;">
+            <button class="btn small ghost" id="btnAddBPTier">+ Ajouter palier</button>
+            <button class="btn small danger" id="btnResetBP">Réinitialiser</button>
+          </div>
+        </div>
+        <p style="color:var(--muted); font-size:13px; margin-bottom:16px;">
+          Modifie les récompenses de chaque palier. Type "currency" donne des cristaux, "item" donne un objet de la boutique.
+        </p>
+        <div id="bpTiers"></div>
+      </div>
+    </div>
+
+    <div class="tab hidden" id="tab-rooms">
+      <div class="card">
+        <table>
+          <thead><tr><th>Code</th><th>Mode</th><th>Carte</th><th>Phase</th><th>Joueurs</th><th>Actions</th></tr></thead>
+          <tbody id="roomsBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tab hidden" id="tab-reports">
+      <div class="card">
+        <h3>Skins peints signalés</h3>
+        <p style="color:var(--muted); font-size:13px;">Un skin masqué automatiquement (3 signalements ou plus) revient au skin par défaut pour les autres joueurs jusqu'à ta décision.</p>
+        <div id="reportsGrid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:16px; margin-top:14px;"></div>
+      </div>
+    </div>
+
+    <div class="tab hidden" id="tab-config">
+      <div class="grid2">
+        <div class="card">
+          <h3>Réglages du Swap</h3>
+          <label>Intervalle minimum (secondes)</label><input id="cfgMin" type="number">
+          <label>Intervalle maximum (secondes)</label><input id="cfgMax" type="number">
+          <label>Chance de rester immobile (ping normal)</label><input id="cfgImmBase" type="number" step="0.01">
+          <label>Chance de rester immobile (ping élevé)</label><input id="cfgImmHigh" type="number" step="0.01">
+          <label>Seuil de ping "élevé" (ms)</label><input id="cfgPingThresh" type="number">
+          <label>Récompense quotidienne de base</label><input id="cfgDailyBase" type="number">
+          <label>Bonus par jour de série</label><input id="cfgDailyStep" type="number">
+          <label>Série max (jours)</label><input id="cfgDailyMax" type="number">
+          <button class="btn primary" id="btnSaveConfig" style="margin-top:10px;">Enregistrer</button>
+        </div>
+        <div class="card">
+          <h3>Monétisation & annonces</h3>
+          <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="cfgMonetization" style="width:auto;"> Monétisation activée</label>
+          <p style="color:var(--muted); font-size:12px;">Quand désactivé, les articles marqués "réservé à la monétisation" restent invisibles pour les joueurs.</p>
+          <hr style="border-color:var(--border); margin:16px 0;">
+          <label>Annonce globale</label>
+          <textarea id="announceText" rows="3"></textarea>
+          <button class="btn gold" id="btnAnnounce" style="margin-top:10px;">Diffuser l'annonce</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODALE : action admin générique (remplace les prompt() natifs) ===== -->
+<div id="adminActionModal" class="modal-backdrop hidden">
+  <div class="modal">
+    <button class="modal-close" id="btnCloseAdminAction">✕</button>
+    <h3 id="adminActionTitle">Action</h3>
+    <p id="adminActionDesc" style="color:var(--muted); font-size:13px; margin:6px 0 4px;"></p>
+    <div id="adminActionBody"></div>
+    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px;">
+      <button class="btn ghost" id="btnCancelAdminAction">Annuler</button>
+      <button class="btn primary" id="btnConfirmAdminAction">Confirmer</button>
+    </div>
+  </div>
+</div>
+<script src="port/3000/socket.io/socket.io.js"></script>
+<script src="js/toast.js"></script>
+<script src="js/admin.js"></script>
+<script data-pplx-inline-edit>
+(function () {
+  if (window === window.top) return;
+
+  const allowedParentOrigins = ["https://www.perplexity.ai","https://perplexity.ai","https://testing.perplexity.ai","https://staging.perplexity.ai","https://*.preview.i.perplexity.ai","http://perplexity.localhost","http://localhost:1420","http://127.0.0.1:1420","http://localhost:3000","http://127.0.0.1:3000","http://localhost:5173","http://127.0.0.1:5173"];
+  const MAX_FONT_BYTES = 500 * 1024;
+  const MAX_TOTAL_FONT_BYTES = 2 * 1024 * 1024;
+  let scrollForwarding = false;
+  let scrollRaf = 0;
+  let trustedTopOrigin = null;
+
+  // Allow entries like "https://*.preview.i.perplexity.ai" — the wildcard
+  // matches a single DNS label (no dots), so "https://*.foo" cannot stretch
+  // across multiple labels.
+  function matchesAllowedOrigin(origin) {
+    if (!origin) return false;
+    for (const entry of allowedParentOrigins) {
+      if (!entry.includes("*")) {
+        if (entry === origin) return true;
+        continue;
+      }
+      const pattern = new RegExp(
+        "^" +
+          entry.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[^.]+") +
+          "$",
+      );
+      if (pattern.test(origin)) return true;
+    }
+    return false;
+  }
+
+  // Trust decision: when the sender is same-origin-visible (event.origin is a
+  // real origin like https://www.perplexity.ai) we trust event.origin directly.
+  // When event.origin is "null" (opaque broker srcdoc), we fall back to the
+  // broker's stamped `parentOrigin` to identify the top window. The fallback
+  // is claim-only — we rely on the browser's native `targetOrigin` enforcement
+  // on the response path (see postToTrustedTop) to ensure replies can't be
+  // delivered to anyone but the actual top window of that claimed origin.
+  function getTrustedParentOrigin(event) {
+    const forwardedParentOrigin =
+      typeof event.data.parentOrigin === "string" ? event.data.parentOrigin : null;
+    const parentOrigin = event.origin === "null" ? forwardedParentOrigin : event.origin;
+    return matchesAllowedOrigin(parentOrigin) ? parentOrigin : null;
+  }
+
+  // All responses go to window.top with targetOrigin = the allowlisted origin.
+  // An attacker that iframes us inside their own null-origin broker can claim
+  // any parentOrigin they like, but the browser will drop the reply whenever
+  // the real top's origin doesn't match — so the screenshot never leaves.
+  function postToTrustedTop(message) {
+    if (!trustedTopOrigin) return;
+    try {
+      window.top.postMessage(message, trustedTopOrigin);
+    } catch (_error) {}
+  }
+
+  function inlineAll(original, clone) {
+    if (original.nodeType !== 1 || clone.nodeType !== 1) return;
+
+    try {
+      const computedStyle = getComputedStyle(original);
+      // cssText on a computed style is the serialized declaration in modern
+      // Chromium/Safari — a single read beats enumerating ~400 longhand
+      // properties. Firefox returns "" here, so we fall back on empty.
+      const serialized = computedStyle.cssText;
+      if (serialized) {
+        clone.style.cssText = serialized;
+      } else {
+        const parts = new Array(computedStyle.length);
+        for (let index = 0; index < computedStyle.length; index += 1) {
+          const property = computedStyle[index];
+          parts[index] = `${property}:${computedStyle.getPropertyValue(property)};`;
+        }
+        clone.style.cssText = parts.join("");
+      }
+    } catch (_error) {}
+
+    const originalChildren = original.children;
+    const clonedChildren = clone.children;
+    for (
+      let index = 0;
+      index < originalChildren.length && index < clonedChildren.length;
+      index += 1
+    ) {
+      inlineAll(originalChildren[index], clonedChildren[index]);
+    }
+  }
+
+  function extractFontUrl(srcValue) {
+    const matches = [
+      ...srcValue.matchAll(
+        /url\(["']?([^"')]+)["']?\)(?:\s*format\(["']?([^"')]+)["']?\))?/gi,
+      ),
+    ];
+    if (matches.length === 0) return null;
+    const woff2 = matches.find((m) => m[2] && m[2].toLowerCase().includes("woff2"));
+    if (woff2) return woff2[1];
+    const woff = matches.find((m) => m[2] && m[2].toLowerCase().includes("woff"));
+    if (woff) return woff[1];
+    return matches[0][1];
+  }
+
+  // Cache resolved font URL -> data URI across captures. Fonts on a page
+  // essentially never change, and a batch run emits multiple captures back to
+  // back — without this we'd refetch + re-base64 every time.
+  const fontDataUriCache = new Map();
+  const SRC_DECLARATION_RE = /src\s*:\s*[^;}]+/i;
+
+  async function fetchAsDataUri(url) {
+    if (fontDataUriCache.has(url)) return fontDataUriCache.get(url);
+    let dataUri = null;
+    try {
+      const response = await fetch(url, { mode: "cors", credentials: "omit" });
+      if (response.ok) {
+        const blob = await response.blob();
+        if (blob.size <= MAX_FONT_BYTES) {
+          dataUri = await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () =>
+              resolve(typeof reader.result === "string" ? reader.result : null);
+            reader.onerror = () => resolve(null);
+            reader.readAsDataURL(blob);
+          });
+        }
+      }
+    } catch (_error) {
+      dataUri = null;
+    }
+    fontDataUriCache.set(url, dataUri);
+    return dataUri;
+  }
+
+  function collectFontFaceRuleTexts() {
+    const rules = [];
+    for (const sheet of document.styleSheets) {
+      let cssRules;
+      try {
+        cssRules = sheet.cssRules;
+      } catch (_error) {
+        continue;
+      }
+      if (!cssRules) continue;
+      for (const rule of cssRules) {
+        const cssText = rule.cssText || "";
+        if (cssText.startsWith("@font-face")) rules.push(cssText);
+      }
+    }
+    return rules;
+  }
+
+  async function buildInlinedFontCss() {
+    const ruleTexts = collectFontFaceRuleTexts();
+    if (ruleTexts.length === 0) return null;
+
+    const resolved = ruleTexts.map((cssText) => {
+      if (!SRC_DECLARATION_RE.test(cssText)) return null;
+      const srcMatch = cssText.match(/src\s*:\s*([^;}]+)[;}]/i);
+      if (!srcMatch) return null;
+      const url = extractFontUrl(srcMatch[1]);
+      if (!url) return null;
+      try {
+        return { cssText, url: new URL(url, document.baseURI).href };
+      } catch (_error) {
+        return null;
+      }
+    });
+
+    const dataUris = await Promise.all(
+      resolved.map((entry) => (entry ? fetchAsDataUri(entry.url) : Promise.resolve(null))),
+    );
+
+    const inlined = [];
+    let totalBytes = 0;
+    for (let index = 0; index < resolved.length; index += 1) {
+      const entry = resolved[index];
+      const dataUri = dataUris[index];
+      if (!entry || !dataUri) continue;
+      const approxBytes = dataUri.length * 0.75;
+      if (totalBytes + approxBytes > MAX_TOTAL_FONT_BYTES) break;
+      totalBytes += approxBytes;
+      inlined.push(entry.cssText.replace(SRC_DECLARATION_RE, `src: url("${dataUri}")`));
+    }
+    return inlined.length > 0 ? inlined.join("\n") : null;
+  }
+
+  function stripExternal(clone) {
+    const images = clone.querySelectorAll("img");
+    for (let index = 0; index < images.length; index += 1) {
+      const src = images[index].getAttribute("src");
+      if (src && !src.startsWith("data:")) images[index].removeAttribute("src");
+    }
+
+    const elements = clone.querySelectorAll("*");
+    for (let index = 0; index < elements.length; index += 1) {
+      const style = elements[index].style.cssText;
+      if (style && style.includes("url(")) {
+        elements[index].style.cssText = style.replace(
+          /url\(["']?(?!data:)[^)"']*["']?\)/gi,
+          "none",
+        );
+      }
+    }
+  }
+
+  function emitScroll() {
+    scrollRaf = 0;
+    if (!scrollForwarding) return;
+    postToTrustedTop({
+      type: "INLINE_EDIT_SCROLL",
+      scrollX: window.scrollX,
+      scrollY: window.scrollY,
+    });
+  }
+
+  window.addEventListener(
+    "scroll",
+    function () {
+      if (!scrollForwarding || scrollRaf) return;
+      scrollRaf = requestAnimationFrame(emitScroll);
+    },
+    { passive: true, capture: true },
+  );
+
+  async function handleCaptureRequest(event) {
+    const requestId = event.data.requestId;
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+
+    function postResult(dataUrl) {
+      postToTrustedTop({
+        type: "INLINE_EDIT_SCREENSHOT_RESULT",
+        requestId,
+        dataUrl,
+        scrollX,
+        scrollY,
+      });
+    }
+
+    try {
+      // Wait for any pending web fonts to resolve so both inline metrics and
+      // the @font-face inlining below see the same loaded faces.
+      if (document.fonts && document.fonts.ready) {
+        try {
+          await document.fonts.ready;
+        } catch (_error) {}
+      }
+
+      const clone = document.documentElement.cloneNode(true);
+      inlineAll(document.documentElement, clone);
+
+      const removedNodes = clone.querySelectorAll("script,link[rel=\"stylesheet\"],style");
+      for (let index = 0; index < removedNodes.length; index += 1) {
+        removedNodes[index].remove();
+      }
+
+      stripExternal(clone);
+
+      // Re-embed web fonts as data-URI @font-face rules so the SVG rasterizer
+      // can resolve them — external font URLs aren't fetched during
+      // foreignObject rendering, which would otherwise force a fallback face
+      // and change text metrics.
+      const inlinedFontCss = await buildInlinedFontCss();
+      if (inlinedFontCss) {
+        const styleEl = document.createElement("style");
+        styleEl.textContent = inlinedFontCss;
+        const head = clone.querySelector("head");
+        if (head) head.appendChild(styleEl);
+        else clone.insertBefore(styleEl, clone.firstChild);
+      }
+
+      const html = new XMLSerializer().serializeToString(clone);
+      const svg =
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">` +
+        '<foreignObject width="100%" height="100%">' +
+        `<div xmlns="http://www.w3.org/1999/xhtml" style="width:${width}px;height:${height}px;overflow:hidden">` +
+        `<div style="position:relative;left:-${scrollX}px;top:-${scrollY}px">` +
+        html +
+        "</div></div></foreignObject></svg>";
+      const svgUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+      const image = new Image();
+      image.onload = function () {
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext("2d").drawImage(image, 0, 0);
+        postResult(canvas.toDataURL("image/png"));
+      };
+      image.onerror = function () {
+        postResult(null);
+      };
+      image.src = svgUrl;
+    } catch (_error) {
+      postResult(null);
+    }
+  }
+
+  window.addEventListener("message", function (event) {
+    if (!event.data) return;
+    // Only accept messages from the direct parent frame. Blocks sibling /
+    // unrelated-window postMessage senders that could otherwise reach us.
+    if (event.source !== window.parent) return;
+
+    const trustedParentOrigin = getTrustedParentOrigin(event);
+    if (!trustedParentOrigin) return;
+    trustedTopOrigin = trustedParentOrigin;
+
+    if (event.data.type === "INLINE_EDIT_SCROLL_START") {
+      scrollForwarding = true;
+      emitScroll();
+      return;
+    }
+
+    if (event.data.type === "INLINE_EDIT_SCROLL_STOP") {
+      scrollForwarding = false;
+      if (scrollRaf) cancelAnimationFrame(scrollRaf);
+      scrollRaf = 0;
+      return;
+    }
+
+    if (event.data.type !== "INLINE_EDIT_CAPTURE_REQUEST") return;
+
+    handleCaptureRequest(event);
+  });
+})();
+
+
+</script></body>
+</html>

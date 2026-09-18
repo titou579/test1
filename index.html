@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Swap or Die</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="css/style.css">
+<script>
+  // window.BACKEND is auto-detected in client.js from the socket.io.js script tag
+  window.BACKEND = '';
+</script>
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+<div class="wrap">
+  <header class="top">
+    <div class="logo"><span class="swap">SWAP</span> <span class="or">OR</span> <span class="die">DIE</span></div>
+    <div id="userBadge" class="pill hidden"></div>
+  </header>
+
+  <!-- ===== ECRAN AUTH ===== -->
+  <section id="view-auth">
+    <div class="card auth-grid">
+      <div>
+        <h2>Connexion</h2>
+        <div class="field"><label>Pseudo</label><input id="loginUser" placeholder="Pseudo"></div>
+        <div class="field"><label>Mot de passe</label><input id="loginPass" type="password" placeholder="Mot de passe"></div>
+        <button class="btn primary" id="btnLogin">Se connecter</button>
+        <div class="error" id="loginError"></div>
+      </div>
+      <div>
+        <h2>Créer un compte</h2>
+        <div class="field"><label>Pseudo (3-16 caractères)</label><input id="regUser" placeholder="Pseudo"></div>
+        <div class="field"><label>Mot de passe</label><input id="regPass" type="password" placeholder="Mot de passe"></div>
+        <button class="btn gold" id="btnRegister">Créer mon compte</button>
+        <div class="error" id="regError"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== APP (après connexion) ===== -->
+  <section id="view-app" class="hidden">
+    <nav class="tabs">
+      <button data-tab="play" class="active">🎮 Jouer</button>
+      <button data-tab="shop">🛒 Boutique</button>
+      <button data-tab="pass">🎫 Pass de combat</button>
+      <button data-tab="profile">👤 Profil</button>
+      <button data-tab="friends">👥 Amis</button>
+      <button data-tab="leaderboard">🏆 Classement</button>
+      <button data-tab="settings">⚙️ Réglages</button>
+      <button data-tab="logout" style="margin-left:auto;">↩️ Déconnexion</button>
+    </nav>
+
+    <!-- --- Jouer --- -->
+    <div class="tab-panel" id="tab-play">
+      <div class="card" id="dailyRewardCard" style="margin-bottom:18px; display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;">
+        <div>
+          <h3 style="margin-bottom:4px;">🎁 Récompense quotidienne</h3>
+          <p id="dailyRewardText" style="color:var(--muted); font-size:13px; margin:0;">Chargement…</p>
+        </div>
+        <button class="btn gold" id="btnClaimDaily" disabled>Récupérer</button>
+      </div>
+    <div class="online-stats" style="display:flex; gap:18px; margin-bottom:16px; font-size:13px; color:var(--muted);">
+        <span>🟢 <b id="statOnlinePlayers">–</b> joueur(s) en ligne</span>
+        <span>🗺️ <b id="statActiveRooms">–</b> partie(s) active(s)</span>
+      </div>
+      <div id="adminLinkBox" class="hidden" style="margin-bottom:16px;">
+        <a href="#" id="adminLink" class="admin-link-badge" onclick="goToAdmin(); return false;">🛠️ Panneau administrateur</a>
+      </div>
+      <div class="play-grid">
+        <div class="card">
+          <h3>Partie publique</h3>
+          <p style="color:var(--muted);font-size:14px;">2 à 15 joueurs. Rejoint automatiquement un salon disponible ou en crée un nouveau.</p>
+          <button class="btn primary" id="btnJoinPublic">Rejoindre une partie publique</button>
+          <div id="adminSoloBox" class="hidden" style="margin-top:16px; padding-top:16px; border-top:1px dashed var(--border);">
+            <p style="color:var(--gold); font-size:13px;">🛠️ Admin : tester une carte seul, sans attendre d'autres joueurs.</p>
+            <div style="margin:10px 0; display:flex; align-items:center; gap:8px;">
+              <label style="font-size:13px; color:var(--muted);">🤖 Bots IA :</label>
+              <select id="soloBotsCount" style="background:var(--card); border:1px solid var(--border); color:var(--text); padding:4px 8px; border-radius:8px;">
+                <option value="0">Aucun bot</option>
+                <option value="1" selected>1 bot</option>
+                <option value="2">2 bots</option>
+              </select>
+            </div>
+            <button class="btn gold small" id="btnSoloTest">Lancer un test solo</button>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Salon privé</h3>
+          <p style="color:var(--muted);font-size:14px;">2 à 15 joueurs, accessible uniquement par code.</p>
+          <div class="field"><label>Créer un salon</label>
+            <div class="map-pick">
+              <label><input type="radio" name="mapPick" value="jungle" checked> 🌴 Jungle</label>
+              <label><input type="radio" name="mapPick" value="arctic"> ❄️ Arctique</label>
+              <label><input type="radio" name="mapPick" value="desert"> 🏜️ Désert</label>
+            </div>
+            <button class="btn gold" id="btnCreatePrivate">Créer un salon privé</button>
+            <div style="margin-top:10px; display:flex; align-items:center; gap:8px;">
+              <label style="font-size:13px; color:var(--muted);">🤖 Bots :</label>
+              <select id="privateBotsCount" style="background:var(--card); border:1px solid var(--border); color:var(--text); padding:4px 8px; border-radius:8px;">
+                <option value="0">Aucun bot</option>
+                <option value="1">1 bot</option>
+                <option value="2">2 bots</option>
+              </select>
+            </div>
+          </div>
+          <hr style="border-color:var(--border); margin:16px 0;">
+          <div class="field"><label>Rejoindre avec un code</label>
+            <input id="joinCode" placeholder="Ex: A1B2C3" style="text-transform:uppercase;">
+          </div>
+          <button class="btn" id="btnJoinPrivate">Rejoindre</button>
+          <div class="error" id="playError"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- --- Boutique --- -->
+    <div class="tab-panel hidden" id="tab-shop">
+      <div class="card">
+        <h3>Boutique de cosmétiques</h3>
+        <p style="color:var(--muted);font-size:14px;">Achète des skins, traînées et emotes avec tes Cristaux gagnés en jeu.</p>
+        <div class="shop-filters">
+          <input id="shopSearch" placeholder="Rechercher un article...">
+          <select id="shopTypeFilter">
+            <option value="">Tous les types</option>
+            <option value="skin">Skins</option>
+            <option value="trail">Traînées</option>
+            <option value="emote">Emotes</option>
+            <option value="bundle">Packs</option>
+          </select>
+          <select id="shopSort">
+            <option value="price-asc">Prix croissant</option>
+            <option value="price-desc">Prix décroissant</option>
+            <option value="rarity">Rareté</option>
+            <option value="name">Nom (A-Z)</option>
+          </select>
+          <label style="display:flex; align-items:center; gap:6px; margin:0; text-transform:none; font-size:13px; color:var(--text); white-space:nowrap;">
+            <input type="checkbox" id="shopOwnedOnly" style="width:auto;"> Possédés uniquement
+          </label>
+        </div>
+        <div id="shopFeatured"></div>
+        <h4 class="shop-section-title">Articles quotidiens <span class="line"></span></h4>
+        <div class="shop-grid" id="shopGrid"></div>
+      </div>
+    </div>
+
+    <!-- --- Profil --- -->
+    <div class="tab-panel hidden" id="tab-profile">
+      <div class="card profile-grid">
+        <div>
+          <div class="avatar-big-3d"><canvas id="profileAvatarCanvas"></canvas></div>
+          <p style="font-size:11px;color:var(--muted);text-align:center;margin:2px 0 10px;">🖱️ Glisse pour faire tourner</p>
+          <h3 id="profileName" style="margin-bottom:4px;"></h3>
+          <div class="pill level" id="profileLevel"></div>
+          <div class="pill currency" id="profileCurrency" style="margin-left:6px;"></div>
+          <div style="margin-top:14px;">
+            <div class="xp-bar"><div class="xp-fill" id="xpFill" style="width:0%"></div></div>
+            <div style="font-size:12px;color:var(--muted);margin-top:4px;" id="xpLabel"></div>
+          </div>
+          <button class="btn small" id="btnOpenPainter" style="margin-top:14px;">🎨 Personnaliser ma tête</button>
+          <button class="btn small ghost" id="btnResetPaint" style="margin-top:8px;">Retirer le skin peint</button>
+        </div>
+        <div>
+          <h4>Statistiques</h4>
+          <div class="stat-row"><span>Parties jouées</span><b id="statMatches">0</b></div>
+          <div class="stat-row"><span>Victoires</span><b id="statWins">0</b></div>
+          <div class="stat-row"><span>Éliminations</span><b id="statKills">0</b></div>
+          <div class="stat-row"><span>Coffres ouverts</span><b id="statChests">0</b></div>
+          <h4 style="margin-top:20px;">Skins possédés</h4>
+          <div class="shop-grid" id="ownedGrid"></div>
+          <h4 style="margin-top:20px;">🏅 Hauts faits</h4>
+          <div class="achv-grid" id="achievementsGrid"></div>
+          <h4 style="margin-top:20px;">📜 Dernières parties</h4>
+          <table class="leaderboard-table" id="matchHistoryTable">
+            <thead><tr><th>Carte</th><th>Résultat</th><th>Élim.</th><th>Morts</th></tr></thead>
+            <tbody id="matchHistoryBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- --- Amis --- -->
+    <div class="tab-panel hidden" id="tab-friends">
+      <div class="card friends-grid">
+        <div>
+          <h3>Mes amis</h3>
+          <div id="friendsList"></div>
+          <hr style="border-color:var(--border); margin:16px 0;">
+          <label>Ajouter un ami (pseudo exact)</label>
+          <div style="display:flex; gap:8px;">
+            <input id="addFriendInput" placeholder="Pseudo">
+            <button class="btn small primary" id="btnAddFriend">Envoyer</button>
+          </div>
+          <div class="error" id="friendError"></div>
+        </div>
+        <div>
+          <h3>Demandes reçues</h3>
+          <div id="friendRequestsList"></div>
+        </div>
+      </div>
+    </div>
+    <!-- --- Pass de combat --- -->
+    <div class="tab-panel hidden" id="tab-pass">
+      <div class="pass-season-header">
+        <div>
+          <div class="pass-season-title">SAISON DU <span class="px-c2">SWAP</span></div>
+          <div class="pass-season-sub">100% gratuit • aucune piste payante</div>
+        </div>
+        <div class="pass-countdown" id="passCountdown">Se termine dans --</div>
+      </div>
+      <div class="card" style="border-top-left-radius:0; border-top-right-radius:0;">
+        <p style="color:var(--muted);font-size:14px;">
+          Chaque niveau gagné débloque un palier à réclamer. Les objets à bordure dorée
+          (paliers 10/20/30/40/50) ne sont obtenables que par ce biais.
+        </p>
+        <div class="pass-progress-bar"><div class="pass-progress-fill" id="passProgressFill" style="width:0%"></div></div>
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin:14px 0; flex-wrap:wrap;">
+          <div>Niveau actuel : <b id="passLevel">1</b></div>
+          <button class="btn gold small" id="btnClaimAllPass">Tout récupérer</button>
+        </div>
+        <div class="pass-track" id="passTrack"></div>
+      </div>
+    </div>
+    <div class="tab-panel hidden" id="tab-leaderboard">
+      <div class="card">
+        <h3>🏆 Classement</h3>
+        <p style="color:var(--muted);font-size:14px;">Les 25 meilleurs joueurs, tous salons confondus.</p>
+        <table class="leaderboard-table">
+          <thead><tr><th>#</th><th>Joueur</th><th>Niveau</th><th>Victoires</th><th>Éliminations</th><th>Parties</th></tr></thead>
+          <tbody id="leaderboardBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- --- Réglages --- -->
+    <div class="tab-panel hidden" id="tab-settings">
+      <div class="card" style="max-width:480px;">
+        <h3>⚙️ Réglages</h3>
+        <div class="field" style="margin-top:16px;">
+          <label>Sensibilité de la souris (<span id="sensitivityVal">1.0</span>x)</label>
+          <input type="range" id="settingSensitivity" min="0.2" max="2.5" step="0.1" value="1">
+        </div>
+        <div class="field">
+          <label>Volume du chat vocal (<span id="voiceVolVal">100</span>%)</label>
+          <input type="range" id="settingVoiceVolume" min="0" max="100" step="5" value="100">
+        </div>
+        <label style="display:flex; align-items:center; gap:8px; margin:0; text-transform:none; font-size:14px; color:var(--text);">
+          <input type="checkbox" id="settingReducedFx" style="width:auto;"> Réduire les effets visuels (flash du swap, particules)
+        </label>
+        <p style="color:var(--muted); font-size:12px; margin-top:16px;">Ces réglages sont sauvegardés sur cet appareil uniquement.</p>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- ===== MODALE : personnalisation du skin (peinture sur la tête) ===== -->
+<div id="painterModal" class="modal-backdrop hidden">
+  <div class="modal item-preview-modal">
+    <h3>🎨 Personnalise ton skin</h3>
+    <p style="color:var(--muted); font-size:12px; margin-top:-4px;">Dessine sur la tête et regarde le rendu en direct
+      sur ton personnage complet, avec ta couleur de corps et ta traînée déjà équipées. Les autres joueurs peuvent
+      signaler un skin inapproprié depuis le chat en jeu ; un skin signalé plusieurs fois est automatiquement masqué
+      en attendant la décision d'un administrateur (qui peut bannir en cas d'abus).</p>
+    <div class="item-preview-body" style="margin-top:8px;">
+      <div>
+        <div class="preview-3d-box"><canvas id="paintPreviewCanvas"></canvas></div>
+        <p style="font-size:11px;color:var(--muted);text-align:center;margin:6px 0 0;">🖱️ Glisse pour faire tourner</p>
+      </div>
+      <div class="item-preview-info">
+        <canvas id="paintCanvas" width="200" height="200"></canvas>
+        <p style="font-size:11px;color:var(--muted);margin:4px 0 0;">Vue de dessus de la tête</p>
+        <div class="palette" id="palette"></div>
+        <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+          <label style="margin:0;">Taille</label>
+          <input type="range" id="brushSize" min="2" max="20" value="6" style="width:120px;">
+          <button class="btn small ghost" id="btnClearPaint">Effacer</button>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:8px;">
+      <button class="btn ghost" id="btnClosePainter">Annuler</button>
+      <button class="btn primary" id="btnSavePaint">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODALE : aperçu 3D d'un objet de la boutique / du pass ===== -->
+<div id="itemPreviewModal" class="modal-backdrop hidden">
+  <div class="modal item-preview-modal">
+    <button class="modal-close" id="btnCloseItemPreview">✕</button>
+    <div class="item-preview-body">
+      <div class="preview-3d-box"><canvas id="itemPreviewCanvas"></canvas></div>
+      <div class="item-preview-info">
+        <h3 id="previewItemName">—</h3>
+        <span class="tag" id="previewItemRarity"></span>
+        <p id="previewItemDesc" style="color:var(--muted); font-size:13px; margin:12px 0;"></p>
+        <div id="previewItemPrice" style="font-size:20px; font-family:var(--font-display,inherit); margin-bottom:16px;"></div>
+        <div id="previewItemActions"></div>
+
+        <div id="previewConfirmBox" class="hidden" style="margin-top:14px; padding:12px; border:1px solid var(--gold); border-radius:8px; background:rgba(255,210,77,.08);">
+          <p style="margin:0 0 10px; font-size:13.5px;" id="previewConfirmText"></p>
+          <div style="display:flex; gap:8px;">
+            <button class="btn ghost small" id="btnCancelPurchase">Annuler</button>
+            <button class="btn gold small" id="btnConfirmPurchase">Confirmer l'achat</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="port/3000/socket.io/socket.io.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="js/preview3d.js"></script>
+<script src="js/toast.js"></script>
+<script src="js/client.js"></script>
+<script data-pplx-inline-edit>
+(function () {
+  if (window === window.top) return;
+
+  const allowedParentOrigins = ["https://www.perplexity.ai","https://perplexity.ai","https://testing.perplexity.ai","https://staging.perplexity.ai","https://*.preview.i.perplexity.ai","http://perplexity.localhost","http://localhost:1420","http://127.0.0.1:1420","http://localhost:3000","http://127.0.0.1:3000","http://localhost:5173","http://127.0.0.1:5173"];
+  const MAX_FONT_BYTES = 500 * 1024;
+  const MAX_TOTAL_FONT_BYTES = 2 * 1024 * 1024;
+  let scrollForwarding = false;
+  let scrollRaf = 0;
+  let trustedTopOrigin = null;
+
+  // Allow entries like "https://*.preview.i.perplexity.ai" — the wildcard
+  // matches a single DNS label (no dots), so "https://*.foo" cannot stretch
+  // across multiple labels.
+  function matchesAllowedOrigin(origin) {
+    if (!origin) return false;
+    for (const entry of allowedParentOrigins) {
+      if (!entry.includes("*")) {
+        if (entry === origin) return true;
+        continue;
+      }
+      const pattern = new RegExp(
+        "^" +
+          entry.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[^.]+") +
+          "$",
+      );
+      if (pattern.test(origin)) return true;
+    }
+    return false;
+  }
+
+  // Trust decision: when the sender is same-origin-visible (event.origin is a
+  // real origin like https://www.perplexity.ai) we trust event.origin directly.
+  // When event.origin is "null" (opaque broker srcdoc), we fall back to the
+  // broker's stamped `parentOrigin` to identify the top window. The fallback
+  // is claim-only — we rely on the browser's native `targetOrigin` enforcement
+  // on the response path (see postToTrustedTop) to ensure replies can't be
+  // delivered to anyone but the actual top window of that claimed origin.
+  function getTrustedParentOrigin(event) {
+    const forwardedParentOrigin =
+      typeof event.data.parentOrigin === "string" ? event.data.parentOrigin : null;
+    const parentOrigin = event.origin === "null" ? forwardedParentOrigin : event.origin;
+    return matchesAllowedOrigin(parentOrigin) ? parentOrigin : null;
+  }
+
+  // All responses go to window.top with targetOrigin = the allowlisted origin.
+  // An attacker that iframes us inside their own null-origin broker can claim
+  // any parentOrigin they like, but the browser will drop the reply whenever
+  // the real top's origin doesn't match — so the screenshot never leaves.
+  function postToTrustedTop(message) {
+    if (!trustedTopOrigin) return;
+    try {
+      window.top.postMessage(message, trustedTopOrigin);
+    } catch (_error) {}
+  }
+
+  function inlineAll(original, clone) {
+    if (original.nodeType !== 1 || clone.nodeType !== 1) return;
+
+    try {
+      const computedStyle = getComputedStyle(original);
+      // cssText on a computed style is the serialized declaration in modern
+      // Chromium/Safari — a single read beats enumerating ~400 longhand
+      // properties. Firefox returns "" here, so we fall back on empty.
+      const serialized = computedStyle.cssText;
+      if (serialized) {
+        clone.style.cssText = serialized;
+      } else {
+        const parts = new Array(computedStyle.length);
+        for (let index = 0; index < computedStyle.length; index += 1) {
+          const property = computedStyle[index];
+          parts[index] = `${property}:${computedStyle.getPropertyValue(property)};`;
+        }
+        clone.style.cssText = parts.join("");
+      }
+    } catch (_error) {}
+
+    const originalChildren = original.children;
+    const clonedChildren = clone.children;
+    for (
+      let index = 0;
+      index < originalChildren.length && index < clonedChildren.length;
+      index += 1
+    ) {
+      inlineAll(originalChildren[index], clonedChildren[index]);
+    }
+  }
+
+  function extractFontUrl(srcValue) {
+    const matches = [
+      ...srcValue.matchAll(
+        /url\(["']?([^"')]+)["']?\)(?:\s*format\(["']?([^"')]+)["']?\))?/gi,
+      ),
+    ];
+    if (matches.length === 0) return null;
+    const woff2 = matches.find((m) => m[2] && m[2].toLowerCase().includes("woff2"));
+    if (woff2) return woff2[1];
+    const woff = matches.find((m) => m[2] && m[2].toLowerCase().includes("woff"));
+    if (woff) return woff[1];
+    return matches[0][1];
+  }
+
+  // Cache resolved font URL -> data URI across captures. Fonts on a page
+  // essentially never change, and a batch run emits multiple captures back to
+  // back — without this we'd refetch + re-base64 every time.
+  const fontDataUriCache = new Map();
+  const SRC_DECLARATION_RE = /src\s*:\s*[^;}]+/i;
+
+  async function fetchAsDataUri(url) {
+    if (fontDataUriCache.has(url)) return fontDataUriCache.get(url);
+    let dataUri = null;
+    try {
+      const response = await fetch(url, { mode: "cors", credentials: "omit" });
+      if (response.ok) {
+        const blob = await response.blob();
+        if (blob.size <= MAX_FONT_BYTES) {
+          dataUri = await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () =>
+              resolve(typeof reader.result === "string" ? reader.result : null);
+            reader.onerror = () => resolve(null);
+            reader.readAsDataURL(blob);
+          });
+        }
+      }
+    } catch (_error) {
+      dataUri = null;
+    }
+    fontDataUriCache.set(url, dataUri);
+    return dataUri;
+  }
+
+  function collectFontFaceRuleTexts() {
+    const rules = [];
+    for (const sheet of document.styleSheets) {
+      let cssRules;
+      try {
+        cssRules = sheet.cssRules;
+      } catch (_error) {
+        continue;
+      }
+      if (!cssRules) continue;
+      for (const rule of cssRules) {
+        const cssText = rule.cssText || "";
+        if (cssText.startsWith("@font-face")) rules.push(cssText);
+      }
+    }
+    return rules;
+  }
+
+  async function buildInlinedFontCss() {
+    const ruleTexts = collectFontFaceRuleTexts();
+    if (ruleTexts.length === 0) return null;
+
+    const resolved = ruleTexts.map((cssText) => {
+      if (!SRC_DECLARATION_RE.test(cssText)) return null;
+      const srcMatch = cssText.match(/src\s*:\s*([^;}]+)[;}]/i);
+      if (!srcMatch) return null;
+      const url = extractFontUrl(srcMatch[1]);
+      if (!url) return null;
+      try {
+        return { cssText, url: new URL(url, document.baseURI).href };
+      } catch (_error) {
+        return null;
+      }
+    });
+
+    const dataUris = await Promise.all(
+      resolved.map((entry) => (entry ? fetchAsDataUri(entry.url) : Promise.resolve(null))),
+    );
+
+    const inlined = [];
+    let totalBytes = 0;
+    for (let index = 0; index < resolved.length; index += 1) {
+      const entry = resolved[index];
+      const dataUri = dataUris[index];
+      if (!entry || !dataUri) continue;
+      const approxBytes = dataUri.length * 0.75;
+      if (totalBytes + approxBytes > MAX_TOTAL_FONT_BYTES) break;
+      totalBytes += approxBytes;
+      inlined.push(entry.cssText.replace(SRC_DECLARATION_RE, `src: url("${dataUri}")`));
+    }
+    return inlined.length > 0 ? inlined.join("\n") : null;
+  }
+
+  function stripExternal(clone) {
+    const images = clone.querySelectorAll("img");
+    for (let index = 0; index < images.length; index += 1) {
+      const src = images[index].getAttribute("src");
+      if (src && !src.startsWith("data:")) images[index].removeAttribute("src");
+    }
+
+    const elements = clone.querySelectorAll("*");
+    for (let index = 0; index < elements.length; index += 1) {
+      const style = elements[index].style.cssText;
+      if (style && style.includes("url(")) {
+        elements[index].style.cssText = style.replace(
+          /url\(["']?(?!data:)[^)"']*["']?\)/gi,
+          "none",
+        );
+      }
+    }
+  }
+
+  function emitScroll() {
+    scrollRaf = 0;
+    if (!scrollForwarding) return;
+    postToTrustedTop({
+      type: "INLINE_EDIT_SCROLL",
+      scrollX: window.scrollX,
+      scrollY: window.scrollY,
+    });
+  }
+
+  window.addEventListener(
+    "scroll",
+    function () {
+      if (!scrollForwarding || scrollRaf) return;
+      scrollRaf = requestAnimationFrame(emitScroll);
+    },
+    { passive: true, capture: true },
+  );
+
+  async function handleCaptureRequest(event) {
+    const requestId = event.data.requestId;
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+
+    function postResult(dataUrl) {
+      postToTrustedTop({
+        type: "INLINE_EDIT_SCREENSHOT_RESULT",
+        requestId,
+        dataUrl,
+        scrollX,
+        scrollY,
+      });
+    }
+
+    try {
+      // Wait for any pending web fonts to resolve so both inline metrics and
+      // the @font-face inlining below see the same loaded faces.
+      if (document.fonts && document.fonts.ready) {
+        try {
+          await document.fonts.ready;
+        } catch (_error) {}
+      }
+
+      const clone = document.documentElement.cloneNode(true);
+      inlineAll(document.documentElement, clone);
+
+      const removedNodes = clone.querySelectorAll("script,link[rel=\"stylesheet\"],style");
+      for (let index = 0; index < removedNodes.length; index += 1) {
+        removedNodes[index].remove();
+      }
+
+      stripExternal(clone);
+
+      // Re-embed web fonts as data-URI @font-face rules so the SVG rasterizer
+      // can resolve them — external font URLs aren't fetched during
+      // foreignObject rendering, which would otherwise force a fallback face
+      // and change text metrics.
+      const inlinedFontCss = await buildInlinedFontCss();
+      if (inlinedFontCss) {
+        const styleEl = document.createElement("style");
+        styleEl.textContent = inlinedFontCss;
+        const head = clone.querySelector("head");
+        if (head) head.appendChild(styleEl);
+        else clone.insertBefore(styleEl, clone.firstChild);
+      }
+
+      const html = new XMLSerializer().serializeToString(clone);
+      const svg =
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">` +
+        '<foreignObject width="100%" height="100%">' +
+        `<div xmlns="http://www.w3.org/1999/xhtml" style="width:${width}px;height:${height}px;overflow:hidden">` +
+        `<div style="position:relative;left:-${scrollX}px;top:-${scrollY}px">` +
+        html +
+        "</div></div></foreignObject></svg>";
+      const svgUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+      const image = new Image();
+      image.onload = function () {
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext("2d").drawImage(image, 0, 0);
+        postResult(canvas.toDataURL("image/png"));
+      };
+      image.onerror = function () {
+        postResult(null);
+      };
+      image.src = svgUrl;
+    } catch (_error) {
+      postResult(null);
+    }
+  }
+
+  window.addEventListener("message", function (event) {
+    if (!event.data) return;
+    // Only accept messages from the direct parent frame. Blocks sibling /
+    // unrelated-window postMessage senders that could otherwise reach us.
+    if (event.source !== window.parent) return;
+
+    const trustedParentOrigin = getTrustedParentOrigin(event);
+    if (!trustedParentOrigin) return;
+    trustedTopOrigin = trustedParentOrigin;
+
+    if (event.data.type === "INLINE_EDIT_SCROLL_START") {
+      scrollForwarding = true;
+      emitScroll();
+      return;
+    }
+
+    if (event.data.type === "INLINE_EDIT_SCROLL_STOP") {
+      scrollForwarding = false;
+      if (scrollRaf) cancelAnimationFrame(scrollRaf);
+      scrollRaf = 0;
+      return;
+    }
+
+    if (event.data.type !== "INLINE_EDIT_CAPTURE_REQUEST") return;
+
+    handleCaptureRequest(event);
+  });
+})();
+
+
+</script></body>
+</html>
