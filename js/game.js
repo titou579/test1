@@ -1,5 +1,5 @@
 // public/js/game.js — moteur de jeu 3D (Three.js) côté client.
-// Version 0.9 : refonte visuelle majeure — modèles riches, animation, monde vivant.
+// Version 0.9.1 : corrections de bugs (minimap pièges, voix, attaque).
 
 (function () {
   // Auto-detect backend URL from the socket.io.js script tag.
@@ -38,19 +38,17 @@
   if (!session || !token || !joinIntent) { location.href = 'index.html'; return; }
 
   // Parse BACKEND URL into host + path for Socket.io
-  // Socket.io v4 ignores the URL path and uses /socket.io/ by default,
-  // so we need to pass the path explicitly via the `path` option.
   let socketUrl = window.BACKEND || '';
   let socketPath = '/socket.io/';
   const isLocalDev = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
   if (socketUrl && !isLocalDev) {
     try {
       const u = new URL(socketUrl);
-      socketUrl = u.origin; // e.g. https://sites.pplx.app
-      socketPath = u.pathname.replace(/\/$/, '') + '/socket.io/'; // e.g. /sites/proxy/.../port/3000/socket.io/
+      socketUrl = u.origin;
+      socketPath = u.pathname.replace(/\/$/, '') + '/socket.io/';
     } catch(e) {}
   } else {
-    socketUrl = ''; // en local, tout passe par le même serveur sur le port 3000
+    socketUrl = '';
   }
 
   const socket = io(socketUrl, {
@@ -84,7 +82,6 @@
   camera.position.set(0, 1.7, 0);
   scene.add(rig);
 
-  // Rig tilt pour le head bob
   const tiltGroup = new THREE.Object3D();
   camera.add(tiltGroup);
 
@@ -135,7 +132,6 @@
     return makeCanvasTexture((ctx, size) => {
       ctx.fillStyle = style.base;
       ctx.fillRect(0, 0, size, size);
-      // Variation de couleur
       for (let i = 0; i < 1200; i++) {
         const colors = [style.spot, style.spot2, style.base];
         ctx.fillStyle = colors[Math.floor(Math.random() * colors.length)];
@@ -145,7 +141,6 @@
         ctx.arc(Math.random() * size, Math.random() * size, r, 0, Math.PI * 2);
         ctx.fill();
       }
-      // Petites herbes/cailloux
       for (let i = 0; i < 300; i++) {
         ctx.globalAlpha = 0.15 + Math.random() * 0.2;
         ctx.fillStyle = Math.random() < 0.5 ? style.spot : style.spot2;
@@ -191,9 +186,7 @@
 
   function makeTree(biome) {
     const g = new THREE.Group();
-    const style = BIOME_STYLES[biome] || BIOME_STYLES.jungle;
     if (biome === 'arctic') {
-      // Sapin enneigé
       const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.45, 2, 6), new THREE.MeshStandardMaterial({ color: 0x6b4a2a, roughness: 0.9 }));
       trunk.position.y = 1;
       trunk.castShadow = true;
@@ -205,12 +198,10 @@
         g.add(cone);
       }
     } else if (biome === 'desert') {
-      // Cactus
       const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.5, 3.5, 8), new THREE.MeshStandardMaterial({ color: 0x4a7a3a, roughness: 0.8 }));
       trunk.position.y = 1.75;
       trunk.castShadow = true;
       g.add(trunk);
-      // Bras
       for (let i = 0; i < 2; i++) {
         const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.3, 1.2, 6), new THREE.MeshStandardMaterial({ color: 0x4a7a3a, roughness: 0.8 }));
         arm.position.set(i === 0 ? 0.5 : -0.5, 2 + Math.random() * 0.5, 0);
@@ -218,18 +209,15 @@
         arm.castShadow = true;
         g.add(arm);
       }
-      // Rocher au pied
       const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.6, 0), new THREE.MeshStandardMaterial({ color: 0xb08050, roughness: 0.95 }));
       rock.position.y = 0.3;
       rock.castShadow = true;
       g.add(rock);
     } else {
-      // Arbre tropical
       const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.5, 3, 7), new THREE.MeshStandardMaterial({ color: 0x5a3a1a, roughness: 0.9 }));
       trunk.position.y = 1.5;
       trunk.castShadow = true;
       g.add(trunk);
-      // Feuillage
       for (let i = 0; i < 4; i++) {
         const leaf = new THREE.Mesh(new THREE.IcosahedronGeometry(1.2 + Math.random() * 0.4, 0), new THREE.MeshStandardMaterial({ color: 0x3a6a28, roughness: 0.85 }));
         leaf.position.set((Math.random() - 0.5) * 1.5, 3.5 + Math.random() * 1, (Math.random() - 0.5) * 1.5);
@@ -241,13 +229,8 @@
   }
 
   function makeRock(biome) {
-    const style = BIOME_STYLES[biome] || BIOME_STYLES.jungle;
     const g = new THREE.Group();
-    const rockColors = {
-      jungle: 0x5a5a4a,
-      arctic: 0x9aaab5,
-      desert: 0xa07848
-    };
+    const rockColors = { jungle: 0x5a5a4a, arctic: 0x9aaab5, desert: 0xa07848 };
     const rockColor = rockColors[biome] || 0x5a5a4a;
     const main = new THREE.Mesh(new THREE.DodecahedronGeometry(1 + Math.random() * 0.8, 0), new THREE.MeshStandardMaterial({ color: rockColor, roughness: 0.95 }));
     main.position.y = 0.5;
@@ -264,30 +247,25 @@
   }
 
   function makeStructure(biome) {
-    // Ruines / structures
     const g = new THREE.Group();
     const stoneColors = { jungle: 0x6a6a5a, arctic: 0x8a9aa5, desert: 0xb09868 };
     const stoneColor = stoneColors[biome] || 0x6a6a5a;
     const mat = new THREE.MeshStandardMaterial({ color: stoneColor, roughness: 0.9 });
-    // Pilier
     const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.8, 3, 0.8), mat);
     pillar.position.y = 1.5;
     pillar.castShadow = true;
     g.add(pillar);
-    // Morceau de toit
     const top = new THREE.Mesh(new THREE.BoxGeometry(2, 0.3, 2), mat);
     top.position.y = 3.2;
     top.rotation.z = (Math.random() - 0.5) * 0.3;
     top.castShadow = true;
     g.add(top);
-    // Deuxième pilier cassé
     if (Math.random() < 0.7) {
       const p2 = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.5, 0.7), mat);
       p2.position.set(1.8, 0.75, 0);
       p2.castShadow = true;
       g.add(p2);
     }
-    // Bloc de pierre tombé
     if (Math.random() < 0.5) {
       const block = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.6, 0.8), mat);
       block.position.set(-1.5, 0.3, 0.5);
@@ -295,7 +273,6 @@
       block.castShadow = true;
       g.add(block);
     }
-    // Marches (escalier)
     if (Math.random() < 0.4) {
       for (let i = 0; i < 3; i++) {
         const step = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.2, 0.3), mat);
@@ -309,15 +286,13 @@
 
   function makeCrystal(biome) {
     const g = new THREE.Group();
- const crystalColors = { jungle: 0x44ff88, arctic: 0x88ddff, desert: 0xffaa44 };
+    const crystalColors = { jungle: 0x44ff88, arctic: 0x88ddff, desert: 0xffaa44 };
     const c = crystalColors[biome] || 0x44ff88;
     const crystalMat = new THREE.MeshStandardMaterial({ color: c, roughness: 0.1, metalness: 0.3, transparent: true, opacity: 0.85 });
-    // Main crystal
     const main = new THREE.Mesh(new THREE.ConeGeometry(0.25, 1.2, 6), crystalMat);
     main.position.y = 0.6;
     main.castShadow = true;
     g.add(main);
-    // Smaller crystals around
     for (let i = 0; i < 3; i++) {
       const small = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.6 + Math.random() * 0.3, 5), crystalMat);
       const ang = (i / 3) * Math.PI * 2;
@@ -326,7 +301,6 @@
       small.castShadow = true;
       g.add(small);
     }
-    // Glow light
     const light = new THREE.PointLight(c, 0.6, 3);
     light.position.y = 0.8;
     g.add(light);
@@ -336,32 +310,27 @@
 
   function makeTotem(biome) {
     const g = new THREE.Group();
- const totemColors = { jungle: 0x4a7a3a, arctic: 0x6a8a9a, desert: 0x8a6a3a };
+    const totemColors = { jungle: 0x4a7a3a, arctic: 0x6a8a9a, desert: 0x8a6a3a };
     const c = totemColors[biome] || 0x4a7a3a;
     const mat = new THREE.MeshStandardMaterial({ color: c, roughness: 0.8 });
-    // Base
     const base = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.6, 0.3, 8), mat);
     base.position.y = 0.15;
     base.castShadow = true;
     g.add(base);
-    // Tronc
     const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 1.5, 8), mat);
     trunk.position.y = 1.05;
     trunk.castShadow = true;
     g.add(trunk);
-    // Tête sculptée
     const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), mat);
     head.position.y = 2.05;
     head.castShadow = true;
     g.add(head);
-    // Yeux brillants
     const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff4444 });
     const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 6), eyeMat);
     eyeL.position.set(-0.12, 2.1, 0.26);
     const eyeR = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 6), eyeMat);
     eyeR.position.set(0.12, 2.1, 0.26);
     g.add(eyeL, eyeR);
-    // Bras sculptés
     const armL = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.5, 0.15), mat);
     armL.position.set(-0.35, 1.3, 0);
     armL.rotation.z = 0.5;
@@ -372,7 +341,6 @@
     armR.rotation.z = -0.5;
     armR.castShadow = true;
     g.add(armR);
-    // Glow
     const light = new THREE.PointLight(c, 0.4, 4);
     light.position.y = 2;
     g.add(light);
@@ -396,14 +364,13 @@
 
   function makeLootBarrel(biome) {
     const g = new THREE.Group();
- const barrelColors = { jungle: 0x3a5a8a, arctic: 0x5a5a6a, desert: 0x8a5a3a };
+    const barrelColors = { jungle: 0x3a5a8a, arctic: 0x5a5a6a, desert: 0x8a5a3a };
     const c = barrelColors[biome] || 0x3a5a8a;
     const mat = new THREE.MeshStandardMaterial({ color: c, roughness: 0.6, metalness: 0.3 });
     const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.8, 10), mat);
     barrel.position.y = 0.4;
     barrel.castShadow = true;
     g.add(barrel);
-    // Bandes
     const bandMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.4, metalness: 0.5 });
     const band1 = new THREE.Mesh(new THREE.CylinderGeometry(0.31, 0.31, 0.08, 10), bandMat);
     band1.position.y = 0.6;
@@ -416,7 +383,6 @@
 
   function makeBush(biome) {
     const g = new THREE.Group();
-    const style = BIOME_STYLES[biome] || BIOME_STYLES.jungle;
     const bushColors = { jungle: 0x2a5a28, arctic: 0xb8d8e8, desert: 0x6a8a3a };
     const c = bushColors[biome] || 0x2a5a28;
     for (let i = 0; i < 3; i++) {
@@ -435,7 +401,6 @@
   function buildWorld(biome) {
     const style = BIOME_STYLES[biome] || BIOME_STYLES.jungle;
 
-    // Sky gradient via grand mesh sphérique
     const skyGeo = new THREE.SphereGeometry(300, 32, 16);
     const skyMat = new THREE.ShaderMaterial({
       uniforms: {
@@ -452,11 +417,9 @@
 
     scene.fog = new THREE.Fog(style.fog, 40, 160);
 
-    // Nettoyer ancien décor
     while (decorGroup.children.length) decorGroup.remove(decorGroup.children[0]);
     worldDecor = [];
 
-    // Sol avec texture
     if (groundMesh) scene.remove(groundMesh);
     const groundGeo = new THREE.CircleGeometry(65, 64);
     const groundMat = new THREE.MeshStandardMaterial({ map: groundTextureFor(biome), roughness: 1 });
@@ -465,7 +428,6 @@
     groundMesh.receiveShadow = true;
     scene.add(groundMesh);
 
-    // Anneau de bordure (zone de jeu)
     const ringGeo = new THREE.RingGeometry(58, 65, 64);
     const ringMat = new THREE.MeshBasicMaterial({ color: style.accent, transparent: true, opacity: 0.3, side: THREE.DoubleSide });
     const ring = new THREE.Mesh(ringGeo, ringMat);
@@ -473,20 +435,17 @@
     ring.position.y = 0.05;
     decorGroup.add(ring);
 
-    // Cercle de zone intérieur (subtil)
     const innerRing = new THREE.Mesh(new THREE.RingGeometry(57.5, 58.5, 64), new THREE.MeshBasicMaterial({ color: style.accent, transparent: true, opacity: 0.5, side: THREE.DoubleSide }));
     innerRing.rotation.x = -Math.PI / 2;
     innerRing.position.y = 0.06;
     decorGroup.add(innerRing);
 
-    // Décor : arbres, rochers, structures, buissons, cristaux, totems, collines, barils
     const decorTypes = ['tree', 'tree', 'tree', 'rock', 'rock', 'bush', 'bush', 'structure', 'crystal', 'totem', 'hill', 'barrel'];
     const placed = [];
     for (let i = 0; i < 110; i++) {
       const angle = Math.random() * Math.PI * 2;
       const dist = 8 + Math.random() * 48;
       const x = Math.cos(angle) * dist, z = Math.sin(angle) * dist;
-      // Éviter chevauchement
       let tooClose = false;
       for (const p of placed) {
         if (Math.hypot(x - p.x, z - p.z) < 4) { tooClose = true; break; }
@@ -513,13 +472,11 @@
       worldDecor.push(deco);
     }
 
-    // Quelques particules d'ambiance (pollen/neige/sable)
     if (!window.SOD_SETTINGS || !window.SOD_SETTINGS.get().reducedFx) {
       createAmbientParticles(biome);
     }
   }
 
-  // Particules d'ambiance
   let particleSystem = null;
   function createAmbientParticles(biome) {
     if (particleSystem) { scene.remove(particleSystem); }
@@ -559,11 +516,11 @@
   }
 
   // ---------------- ENTITÉS ----------------
-  const bodyMeshes = new Map();    // bodyId -> { group, parts, label, matRef }
+  const bodyMeshes = new Map();
   const chestMeshes = new Map();
   const resourceMeshes = new Map();
   const trapMeshes = new Map();
-  const bodyTargets = new Map();   // bodyId -> {x,y,z,ry} interpolation
+  const bodyTargets = new Map();
 
   function bodyColorFor(bodyId) {
     const sid = room.controllerOf[bodyId];
@@ -583,7 +540,6 @@
     return tex;
   }
 
-  // Créer un personnage avec membres et animation
   function makeBodyGroup(body) {
     const group = new THREE.Group();
     const { color, pattern, customSkin } = bodyColorFor(body.id);
@@ -591,19 +547,16 @@
     const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.7 });
     const headMat = new THREE.MeshStandardMaterial({ map: customSkin ? customTextureFor(customSkin) : tex, roughness: 0.7 });
 
-    // Torse
     const torso = new THREE.Mesh(typeof THREE.CapsuleGeometry === 'function' ? new THREE.CapsuleGeometry(0.35, 0.7, 4, 8) : new THREE.CylinderGeometry(0.35, 0.35, 1.1, 10), mat);
     torso.position.y = 1.1;
     torso.castShadow = true;
     group.add(torso);
 
-    // Tête
     const head = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 16), headMat);
     head.position.y = 1.8;
     head.castShadow = true;
     group.add(head);
 
-    // Yeux
     const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
     const eyeGeo = new THREE.SphereGeometry(0.05, 6, 6);
     const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
@@ -612,7 +565,6 @@
     eyeR.position.set(0.1, 1.85, 0.27);
     group.add(eyeL, eyeR);
 
-    // Bras
     const armGeo = typeof THREE.CapsuleGeometry === 'function' ? new THREE.CapsuleGeometry(0.1, 0.5, 3, 6) : new THREE.CylinderGeometry(0.1, 0.1, 0.6, 6);
     const armL = new THREE.Mesh(armGeo, mat);
     armL.position.set(-0.45, 1.2, 0);
@@ -622,7 +574,6 @@
     armR.castShadow = true;
     group.add(armL, armR);
 
-    // Jambes
     const legGeo = typeof THREE.CapsuleGeometry === 'function' ? new THREE.CapsuleGeometry(0.13, 0.6, 3, 6) : new THREE.CylinderGeometry(0.13, 0.13, 0.7, 6);
     const legL = new THREE.Mesh(legGeo, mat);
     legL.position.set(-0.18, 0.4, 0);
@@ -632,19 +583,16 @@
     legR.castShadow = true;
     group.add(legL, legR);
 
-    // Sac à dos
     const backpack = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.4, 0.2), new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 0.9 }));
     backpack.position.set(0, 1.2, -0.3);
     backpack.castShadow = true;
     group.add(backpack);
 
-    // Emote sprite
     const emoteSprite = makeEmoteSprite();
     emoteSprite.position.y = 2.3;
     emoteSprite.visible = false;
     group.add(emoteSprite);
 
-    // Barre de vie flottante
     const hpBarBg = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.08), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.5, depthTest: false }));
     hpBarBg.position.y = 2.15;
     hpBarBg.visible = false;
@@ -672,7 +620,6 @@
     const g = new THREE.Group();
     const skinMat = new THREE.MeshStandardMaterial({ color: 0xffd4a0, roughness: 0.5 });
     if (weapon === 'épée' || weapon === 'epee') {
-      // Sword: blade + guard + handle
       const blade = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.5, 0.02), new THREE.MeshStandardMaterial({ color: 0xccccdd, metalness: 0.6, roughness: 0.2 }));
       blade.position.y = 0.25;
       g.add(blade);
@@ -683,7 +630,6 @@
       handle.position.y = -0.1;
       g.add(handle);
     } else if (weapon === 'hache de guerre' || weapon === 'hache') {
-      // Battle axe
       const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.5, 8), new THREE.MeshStandardMaterial({ color: 0x5a3a1a, roughness: 0.7 }));
       handle.position.y = 0.15;
       g.add(handle);
@@ -691,7 +637,6 @@
       blade.position.set(0.12, 0.38, 0);
       g.add(blade);
     } else if (weapon === 'arc' || weapon === 'arc renforcé') {
-      // Bow
       const bow = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.015, 6, 12, Math.PI), new THREE.MeshStandardMaterial({ color: 0x6a4a2a, roughness: 0.5 }));
       bow.rotation.z = Math.PI / 2;
       g.add(bow);
@@ -699,7 +644,6 @@
       string.position.x = -0.18;
       g.add(string);
     } else {
-      // Fists
       const fist = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.12), skinMat);
       fist.position.set(0, 0, 0);
       g.add(fist);
@@ -722,7 +666,6 @@
     if (weaponSwingTime > 0) {
       weaponSwingTime -= dt;
       const t = 1 - (weaponSwingTime / weaponSwingDuration);
-      // Swing arc: down -> up -> back
       const swing = Math.sin(t * Math.PI);
       weaponGroup.rotation.x = -swing * 1.2;
       weaponGroup.position.z = -0.6 - swing * 0.1;
@@ -858,7 +801,6 @@
         bodyMeshes.set(body.id, entry);
         bodyTargets.set(body.id, { x: body.x, y: body.y, z: body.z, ry: body.ry });
       }
-      // Rafraîchir le skin si le contrôleur a changé
       const { color, pattern, customSkin } = bodyColorFor(body.id);
       if (entry.currentColor !== color || entry.currentPattern !== pattern) {
         const newTex = skinTextureFor(color, pattern);
@@ -875,7 +817,6 @@
       const isMine = room.controllerOf[body.id] === mySocketId;
       entry.group.visible = !isMine && body.alive !== false;
 
-      // Barre de vie visible pour les autres
       if (!isMine && body.alive !== false) {
         entry.hpBarBg.visible = true;
         entry.hpBarFill.visible = true;
@@ -884,7 +825,6 @@
         entry.hpBarFill.position.x = -(0.76 * (1 - hpPct)) / 2;
         const hpColor = hpPct > 0.5 ? 0x4dff5b : hpPct > 0.25 ? 0xffcc4d : 0xff5b5b;
         entry.hpBarFill.material.color.setHex(hpColor);
-        // Face à la caméra
         entry.hpBarBg.lookAt(camera.position);
         entry.hpBarFill.lookAt(camera.position);
       } else {
@@ -910,7 +850,6 @@
     }
   }
 
-  // Modèles riches pour coffres, ressources, pièges
   function makeChestMesh() {
     const g = new THREE.Group();
     const boxMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.8 });
@@ -923,19 +862,15 @@
     lid.position.y = 0.6;
     lid.castShadow = true;
     g.add(lid);
-    // Liseré doré
     const trim = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.05, 0.54), goldMat);
     trim.position.y = 0.5;
     g.add(trim);
-    // Verrou
     const lock = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.06), goldMat);
     lock.position.set(0, 0.5, 0.27);
     g.add(lock);
-    // Lueur
     const glow = new THREE.PointLight(0xffd24d, 0.8, 4);
     glow.position.y = 0.5;
     g.add(glow);
-    // Beacon vertical (colonne de lumière)
     const beaconGeo = new THREE.CylinderGeometry(0.15, 0.15, 6, 8);
     const beaconMat = new THREE.MeshBasicMaterial({ color: 0xffd24d, transparent: true, opacity: 0.15, depthWrite: false });
     const beacon = new THREE.Mesh(beaconGeo, beaconMat);
@@ -948,7 +883,6 @@
   function makeResourceMesh(type) {
     const g = new THREE.Group();
     if (type === 'bois') {
-      // Tas de bois
       const logMat = new THREE.MeshStandardMaterial({ color: 0x7a4a26, roughness: 0.9 });
       for (let i = 0; i < 3; i++) {
         const log = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.6, 6), logMat);
@@ -958,7 +892,6 @@
         g.add(log);
       }
     } else {
-      // Tas de pierres
       const rockMat = new THREE.MeshStandardMaterial({ color: 0x8a8a99, roughness: 0.95 });
       for (let i = 0; i < 4; i++) {
         const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.15 + Math.random() * 0.1, 0), rockMat);
@@ -967,7 +900,6 @@
         g.add(rock);
       }
     }
-    // Halo subtil
     const glow = new THREE.PointLight(type === 'bois' ? 0xffaa44 : 0x88aaff, 0.3, 2);
     glow.position.y = 0.3;
     g.add(glow);
@@ -977,15 +909,12 @@
   function makeTrapMesh() {
     const g = new THREE.Group();
     const mat = new THREE.MeshStandardMaterial({ color: 0xff5b6a, transparent: true, opacity: 0.6, roughness: 0.6 });
-    // Base
     const base = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.08, 12), mat);
     base.position.y = 0.04;
     g.add(base);
-    // Pic central
     const spike = new THREE.Mesh(new THREE.ConeGeometry(0.15, 0.4, 6), new THREE.MeshStandardMaterial({ color: 0xff5b6a, roughness: 0.5 }));
     spike.position.y = 0.25;
     g.add(spike);
-    // Anneau rouge
     const ring = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.04, 6, 16), new THREE.MeshBasicMaterial({ color: 0xff3333, transparent: true, opacity: 0.5 }));
     ring.rotation.x = Math.PI / 2;
     ring.position.y = 0.08;
@@ -1065,8 +994,6 @@
     if (e.code === 'ShiftLeft') isSprinting = false;
   });
 
-  // ===================== CAMERA & MOUSE CONTROLS =====================
-  // Pointer lock mode (click canvas to lock, then mouse = look, click = attack)
   renderer.domElement.addEventListener('click', () => {
     if (document.pointerLockElement !== renderer.domElement) {
       try { renderer.domElement.requestPointerLock(); } catch(e) {}
@@ -1074,17 +1001,14 @@
     else tryAttack();
   });
 
-  // Left-click = attack (works with or without pointer lock)
   renderer.domElement.addEventListener('mousedown', (e) => {
     if (e.button === 0) {
-      // If no pointer lock, right-click drag is for camera, left-click is attack
       if (document.pointerLockElement !== renderer.domElement) {
         tryAttack();
       }
     }
   });
 
-  // --- Mouse look with pointer lock (standard FPS mode) ---
   document.addEventListener('mousemove', (e) => {
     if (document.pointerLockElement !== renderer.domElement) return;
     const sens = (window.SOD_SETTINGS ? window.SOD_SETTINGS.get().sensitivity : 1) * 0.0022;
@@ -1095,7 +1019,6 @@
     camera.rotation.x = pitch;
   });
 
-  // --- Right-click drag-look (no pointer lock needed, works in preview iframe) ---
   let rightDragging = false;
   let lastMouseX = 0, lastMouseY = 0;
   renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -1124,9 +1047,6 @@
     camera.rotation.x = pitch;
   });
 
-  // --- Arrow keys camera rotation (alternative for no-mouse / touch) ---
-  // Also Q/E for yaw, R/F for pitch
-  // Updated in the main loop via keys[] object
   function updateCameraKeys(dt) {
     const camSpeed = 2.5 * dt;
     if (keys['ArrowLeft']) { yaw += camSpeed; rig.rotation.y = yaw; }
@@ -1135,7 +1055,6 @@
     if (keys['ArrowDown']) { pitch = Math.max(-1.2, pitch - camSpeed); camera.rotation.x = pitch; }
   }
 
-  // --- Touch controls (mobile / tablet) ---
   let touchLookId = null;
   let touchLookLastX = 0, touchLookLastY = 0;
   let touchMoveId = null;
@@ -1145,7 +1064,6 @@
   renderer.domElement.addEventListener('touchstart', (e) => {
     e.preventDefault();
     for (const t of e.changedTouches) {
-      // Left half of screen = movement joystick, right half = camera look
       if (t.clientX < window.innerWidth / 2) {
         if (touchMoveId === null) {
           touchMoveId = t.identifier;
@@ -1198,16 +1116,10 @@
       }
     }
   });
-  // Tap to attack on touch
-  renderer.domElement.addEventListener('tap', (e) => {
-    if (e.clientX > window.innerWidth / 2) tryAttack();
-  });
 
-  // Apply touch movement in the main loop
   function getTouchMove() {
     return touchMoveActive;
   }
-
 
   function myBody() {
     if (!room) return null;
@@ -1283,6 +1195,7 @@
 
   function dist(a, c) { return Math.hypot(a.x - c.x, a.z - c.z); }
 
+  // [FIX] Retrait du paramètre "damage" inutile (le serveur est autoritaire)
   function tryAttack() {
     const b = myBody();
     if (!b || room.phase !== 'playing') return;
@@ -1301,13 +1214,11 @@
       if (diff < 1.0 && score > bestScore) { bestScore = score; best = body; }
     }
     if (best) {
-      const dmg = weaponDamage(b.weapon);
-      socket.emit('attack', { targetBodyId: best.id, damage: dmg });
+      socket.emit('attack', { targetBodyId: best.id });  // [FIX] plus de "damage"
       SFX.hit();
       spawnHitParticles(best.x, 1.2, best.z, 0xff4444);
-      spawnDamageNumber(best.x, 1.2, best.z, dmg);
+      spawnDamageNumber(best.x, 1.2, best.z, weaponDamage(b.weapon));
     } else {
-      // Miss particles
       const fx = b.x + Math.sin(yaw) * 2;
       const fz = b.z + Math.cos(yaw) * 2;
       spawnHitParticles(fx, 1.0, fz, 0xaaaaaa);
@@ -1333,7 +1244,6 @@
     const isMoving = move.lengthSq() > 0;
     let speed = moveSpeed * (window.__speedFactor || 1);
 
-    // Sprint avec stamina
     if (isSprinting && isMoving && sprintStamina > 5) {
       speed *= 1.5;
       sprintStamina = Math.max(0, sprintStamina - dt * 20);
@@ -1342,7 +1252,6 @@
     }
     updateStaminaBar(sprintStamina);
 
-    // Head bob (only when grounded)
     if (isMoving && isGrounded) {
       bobTime += dt * (isSprinting ? 12 : 8);
       camera.position.y = 1.7 + b.y + Math.sin(bobTime) * 0.06;
@@ -1356,7 +1265,6 @@
       const distFromCenter = Math.hypot(b.x, b.z);
       if (distFromCenter > 58) { const s = 58 / distFromCenter; b.x *= s; b.z *= s; }
     }
-    // Jump physics
     if (!isGrounded) {
       b.y += jumpVelocity * dt;
       jumpVelocity -= GRAVITY * dt;
@@ -1364,7 +1272,6 @@
     }
     rig.position.set(b.x, b.y, b.z);
 
-    // Animer mon propre personnage (invisible mais garde la cohérence)
     const myEntry = bodyMeshes.get(myBodyId);
     if (myEntry) myEntry.isMoving = isMoving;
 
@@ -1386,17 +1293,14 @@
     else hint.classList.add('hidden');
   }
 
-  // Animer les autres personnages
   function animateBodies(dt) {
     for (const [id, entry] of bodyMeshes) {
       if (id === myBodyId) continue;
       const target = bodyTargets.get(id);
       if (!target) continue;
-      // Interpolation position
       entry.group.position.lerp(new THREE.Vector3(target.x, target.y || 0, target.z), Math.min(1, dt * 10));
       entry.group.rotation.y = target.ry || 0;
 
-      // Détection de mouvement pour animation
       const prevX = entry._prevX || target.x;
       const prevZ = entry._prevZ || target.z;
       const moveDist = Math.hypot(target.x - prevX, target.z - prevZ);
@@ -1404,7 +1308,6 @@
       entry._prevX = target.x;
       entry._prevZ = target.z;
 
-      // Animation de marche
       if (entry.isMoving) {
         entry.walkPhase += dt * 8;
         const swing = Math.sin(entry.walkPhase) * 0.5;
@@ -1412,10 +1315,8 @@
         entry.armR.rotation.x = -swing;
         entry.legL.rotation.x = -swing;
         entry.legR.rotation.x = swing;
-        // Léger bounce
         entry.group.position.y = Math.abs(Math.sin(entry.walkPhase * 2)) * 0.05;
       } else {
-        // Retour à la pose par défaut
         entry.walkPhase = 0;
         entry.armL.rotation.x = THREE.MathUtils.lerp(entry.armL.rotation.x, 0, dt * 8);
         entry.armR.rotation.x = THREE.MathUtils.lerp(entry.armR.rotation.x, 0, dt * 8);
@@ -1436,12 +1337,10 @@
     const range = 65;
     minimapCtx.clearRect(0, 0, size, size);
 
-    // Fond
     const style = BIOME_STYLES[room.map] || BIOME_STYLES.jungle;
     minimapCtx.fillStyle = style.base;
     minimapCtx.fillRect(0, 0, size, size);
 
-    // Bordure de zone
     minimapCtx.strokeStyle = style.accent;
     minimapCtx.lineWidth = 2;
     minimapCtx.beginPath();
@@ -1452,7 +1351,6 @@
     if (!b) return;
     const cx = b.x, cz = b.z;
 
-    // Coffres
     for (const chest of room.chests) {
       if (chest.opened) continue;
       const mx = size / 2 + ((chest.x - cx) / range) * (size / 2);
@@ -1461,7 +1359,6 @@
       minimapCtx.fillRect(mx - 2, my - 2, 4, 4);
     }
 
-    // Ressources
     for (const node of room.resources) {
       if (!node.available) continue;
       const mx = size / 2 + ((node.x - cx) / range) * (size / 2);
@@ -1470,9 +1367,9 @@
       minimapCtx.fillRect(mx - 1.5, my - 1.5, 3, 3);
     }
 
-    // Pièges (seulement les miens)
+    // [FIX] Corrigé : ownerId (et non ownerSocketId)
     for (const trap of room.traps) {
-      if (trap.ownerSocketId !== mySocketId) continue;
+      if (trap.ownerId !== mySocketId) continue;
       const mx = size / 2 + ((trap.x - cx) / range) * (size / 2);
       const my = size / 2 + ((trap.z - cz) / range) * (size / 2);
       minimapCtx.fillStyle = '#ff5b6a';
@@ -1481,7 +1378,6 @@
       minimapCtx.fill();
     }
 
-    // Autres joueurs
     for (const [bid, entry] of bodyMeshes) {
       if (bid === myBodyId || !entry.group.visible) continue;
       const target = bodyTargets.get(bid);
@@ -1495,12 +1391,10 @@
       minimapCtx.fill();
     }
 
-    // Moi (centre)
     minimapCtx.fillStyle = '#4dff5b';
     minimapCtx.beginPath();
     minimapCtx.arc(size / 2, size / 2, 4, 0, Math.PI * 2);
     minimapCtx.fill();
-    // Direction
     minimapCtx.strokeStyle = '#4dff5b';
     minimapCtx.lineWidth = 2;
     minimapCtx.beginPath();
@@ -1627,7 +1521,6 @@
     const startTitles = { private: `Salon privé — code : ${room.code}`, public: 'Partie publique', 'solo-test': 'Test solo — carte chargée' };
     document.getElementById('startTitle').textContent = startTitles[room.mode] || room.mode;
     document.getElementById('startSub').textContent = room.mode === 'solo-test' ? '' : 'En attente du début de la partie…';
-    // If already playing (solo test), start immediately
     if (room.phase === 'playing') {
       document.getElementById('startOverlay').classList.add('hidden');
       ['crosshair', 'hpWrap', 'weaponBox', 'chatBox', 'keyHints', 'staminaWrap'].forEach(id => document.getElementById(id).classList.remove('hidden'));
@@ -1657,7 +1550,6 @@
   let lastSwapWarningAt = -1;
   socket.on('tick', ({ phase, countdown, timerSeconds }) => {
     document.getElementById('swapNum').textContent = phase === 'playing' ? timerSeconds : (countdown ?? '--');
-    // Animation pulse du timer
     const swapTimer = document.getElementById('swapTimer');
     if (phase === 'playing' && timerSeconds <= 10) {
       swapTimer.classList.add('urgent');
@@ -1680,7 +1572,6 @@
     const b = room?.bodies.find(x => x.id === bodyId);
     if (b) { b.hp = hp; b.maxHp = maxHp; }
     if (bodyId === myBodyId) { syncHUDFromBody(b); SFX.damage(); }
-    // Spawn hit particles on damaged body
     if (b) spawnHitParticles(b.x, 1.2, b.z, 0xff4444);
   });
 
@@ -1757,7 +1648,6 @@
   socket.on('notification', ({ type, text }) => pushNotif(type, text));
 
   socket.on('globalSwapExecuted', ({ message, mapping }) => {
-    // Swap visual effect: flash + vignette
     const flash = document.getElementById('swapFlash');
     const vignette = document.getElementById('vignette');
     flash.style.background = 'radial-gradient(circle, rgba(180,120,255,0.6) 0%, rgba(100,60,200,0.3) 50%, transparent 80%)';
@@ -1786,7 +1676,6 @@
     location.href = 'index.html';
   });
 
-  // Add bot button
   document.getElementById('btnAddBot').addEventListener('click', () => {
     socket.emit('addBots', { count: 1 }, (res) => {
       if (res && res.error) pushNotif('bad', res.error);
@@ -1795,13 +1684,19 @@
   });
 
   // ---------------- CHAT VOCAL ----------------
+  // [FIX] Protection contre window.SwapVoice undefined
   const voiceBtn = document.getElementById('voiceBtn');
   let voiceActive = false;
   voiceBtn.addEventListener('click', async () => {
+    if (!window.SwapVoice) {
+      pushNotif('bad', 'Chat vocal indisponible.');
+      return;
+    }
     voiceActive = !voiceActive;
     voiceBtn.classList.toggle('active', voiceActive);
     voiceBtn.textContent = voiceActive ? '🎙️ Voix active' : '🎙️ Voix';
-    if (voiceActive) await window.SwapVoice.join(socket); else window.SwapVoice.leave(socket);
+    if (voiceActive) await window.SwapVoice.join(socket);
+    else window.SwapVoice.leave(socket);
   });
 
   // ---------------- BOUCLE PRINCIPALE ----------------
@@ -1819,7 +1714,6 @@
     updateFloatingTexts(dt);
     animateBodies(dt);
     updateParticles(dt);
-    // Animate chests
     const chestTime = performance.now() / 1000;
     for (const [id, cm] of chestMeshes) {
       if (cm.userData) {
@@ -1828,7 +1722,6 @@
         if (cm.userData.beacon) cm.userData.beacon.material.opacity = 0.1 + pulse * 0.1;
       }
     }
-    // Animate crystals (subtle rotation + glow)
     for (const deco of worldDecor) {
       if (deco.userData && deco.userData.isCrystal) {
         deco.rotation.y += dt * 0.5;
