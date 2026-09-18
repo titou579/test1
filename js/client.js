@@ -1,8 +1,6 @@
 // public/js/client.js — logique du menu principal (hors partie)
 
 // Auto-detect backend URL from the socket.io.js script tag.
-// The deploy tool replaces port/3000 in the src attr with a proxy path;
-// the browser resolves it to an absolute URL we can extract.
 (function() {
   var script = document.querySelector('script[src*="socket.io/socket.io.js"]');
   if (script && script.src) {
@@ -26,9 +24,8 @@ const API = {
 };
 
 // Storage wrapper: uses localStorage when available, falls back to in-memory storage
-// (needed for sandboxed preview iframes that block localStorage)
 const _memStore = {};
-window._memStore = _memStore; // Expose for game.js
+window._memStore = _memStore;
 const SafeStorage = {
   get(key) {
     try { return localStorage.getItem(key); }
@@ -47,7 +44,6 @@ const SafeStorage = {
 function saveSession(token, user) {
   SafeStorage.set('sod_token', token);
   SafeStorage.set('sod_user', JSON.stringify(user));
-  // Also set cookies as cross-page fallback for sandboxed iframes
   try {
     document.cookie = `sod_token=${token}; path=/; max-age=86400`;
     document.cookie = `sod_user=${encodeURIComponent(JSON.stringify(user))}; path=/; max-age=86400`;
@@ -56,7 +52,6 @@ function saveSession(token, user) {
 function getSession() {
   let token = SafeStorage.get('sod_token');
   let userStr = SafeStorage.get('sod_user');
-  // Fallback to cookies for cross-page navigation in sandboxed iframes
   if (!token) {
     try {
       const cookies = document.cookie.split(';').map(c => c.trim());
@@ -98,7 +93,7 @@ function showApp(user) {
   badge.textContent = `${user.username} · Niv. ${user.level} · 💎 ${user.currency}`;
   document.getElementById('adminSoloBox').classList.toggle('hidden', !user.isAdmin);
   document.getElementById('adminLinkBox').classList.toggle('hidden', !user.isAdmin);
-  loadShop().then(() => renderProfile(user)); // le profil a besoin du catalogue (aperçu du skin équipé)
+  loadShop().then(() => renderProfile(user));
   refreshDailyReward();
   refreshOnlineStats();
   if (!window._sodStatsPoll) window._sodStatsPoll = setInterval(refreshOnlineStats, 8000);
@@ -178,7 +173,6 @@ function renderShopGrid() {
   else if (sort === 'rarity') items.sort((a, b) => (RARITY_ORDER[b.rarity] || 0) - (RARITY_ORDER[a.rarity] || 0));
   else if (sort === 'name') items.sort((a, b) => a.name.localeCompare(b.name));
 
-  // Split into featured (rare+) and daily items
   const featured = items.filter(i => (RARITY_ORDER[i.rarity] || 0) >= 2 && i.price > 0);
   const daily = items.filter(i => (RARITY_ORDER[i.rarity] || 0) < 2 || i.price === 0);
 
@@ -250,8 +244,6 @@ function getItemPreviewEngine() {
 }
 
 function applyItemToPreview(engine, item, user) {
-  // Toujours partir de l'équipement actuel du joueur, puis superposer l'objet
-  // regardé pour qu'on voie bien "comment ça rendrait sur moi".
   const equippedSkin = SHOP_CACHE.find(i => i.id === (user && user.equippedSkin)) || { color: '#4da3ff', pattern: 'plain' };
   const equippedTrail = SHOP_CACHE.find(i => i.id === (user && user.equippedTrail));
   if (item.type === 'skin') engine.setSkin(item.color, item.pattern);
@@ -333,11 +325,10 @@ async function buyItem(itemId) {
   document.getElementById('userBadge').textContent = `${data.user.username} · Niv. ${data.user.level} · 💎 ${data.user.currency}`;
   showToast(`Acheté : ${item ? item.name : 'Article'} 🎉`, 'success');
   renderShopGrid();
-  openItemPreview(itemId); // met à jour la modale (bouton "Équiper" à la place d'"Acheter")
+  openItemPreview(itemId);
 }
 
 // ---- Profile ----
-// ---- Hauts faits (calculés côté client à partir des stats, aucune donnée serveur dédiée) ----
 const ACHIEVEMENTS = [
   { id: 'first_blood', icon: '🩸', name: 'Premier sang', desc: '1 élimination', check: s => (s.kills || 0) >= 1 },
   { id: 'killer_10', icon: '⚔️', name: 'Chasseur', desc: '10 éliminations', check: s => (s.kills || 0) >= 10 },
@@ -406,7 +397,7 @@ function renderProfile(user) {
   const trails = owned.filter(i => i.type === 'trail');
   const emotes = owned.filter(i => i.type === 'emote');
   const bundles = owned.filter(i => i.type === 'bundle');
-  
+
   if (!owned.length) {
     ownedGrid.innerHTML = '<p style="color:var(--muted);grid-column:1/-1;">Aucun cosmétique possédé pour le moment.</p>';
   } else {
@@ -428,7 +419,7 @@ function renderProfile(user) {
         </div>`;
       return el;
     };
-    
+
     if (skins.length) {
       const title = document.createElement('h4');
       title.style.cssText = 'grid-column:1/-1;margin:0 0 -4px;';
@@ -476,7 +467,6 @@ async function equipItem(itemId, slot) {
 }
 
 // ---- Play ----
-// Pass join intent via URL hash so it survives page navigation in sandboxed iframes
 function goToGame(joinData) {
   const { token, user } = getSession();
   const hash = encodeURIComponent(JSON.stringify({ join: joinData, token, user }));
@@ -573,6 +563,23 @@ originalTabHandler.forEach(btn => {
 });
 
 // ---- Pass de combat ----
+// [FIX] Résolution correcte des récompenses via SHOP_CACHE (itemId -> item)
+function resolvePassReward(reward) {
+  if (!reward) return { icon: '—', label: '—' };
+  if (reward.type === 'item' && reward.itemId) {
+    const item = SHOP_CACHE.find(i => i.id === reward.itemId);
+    if (item) {
+      const icon = item.type === 'trail' ? '✨' : item.type === 'emote' ? '🎭' : '👕';
+      return { icon, label: item.name };
+    }
+    return { icon: '🎁', label: 'Objet exclusif' };
+  }
+  if (reward.type === 'currency') {
+    return { icon: '💎', label: `${reward.amount || 0} 💎` };
+  }
+  return { icon: '🎁', label: 'Récompense' };
+}
+
 async function loadBattlePass() {
   const { token } = getSession();
   const data = await API.get('/api/battlepass', token);
@@ -587,36 +594,28 @@ async function loadBattlePass() {
     const claimed = data.claimed.includes(t.tier);
     const unlocked = data.level >= t.tier;
     const milestone = t.tier % 10 === 0;
-    let rewardIcon = '💎';
-    let label = `${t.reward.amount || ''} 💎`;
-    if (t.reward.type === 'item') {
-      rewardIcon = t.reward.itemType === 'trail' ? '✨' : t.reward.itemType === 'emote' ? '🎭' : '👕';
-      label = t.reward.name;
-    }
+
+    // [FIX] Utilisation du helper resolvePassReward
+    const reward = resolvePassReward(t.reward);
+
     let stateHtml;
     if (claimed) stateHtml = '<span class="pill">✅ Récupéré</span>';
     else if (unlocked) stateHtml = `<button class="btn small ${milestone ? 'gold' : 'primary'}" data-claim-tier="${t.tier}">Récupérer</button>`;
     else stateHtml = `<span class="pill">🔒 Niv. ${t.tier}</span>`;
-    
-    // Premium track
-    let premiumHtml = '';
+
+    let premiumHtml;
     if (t.premiumReward) {
-      let pIcon = '💎';
-      let pLabel = `${t.premiumReward.amount || ''} 💎`;
-      if (t.premiumReward.type === 'item') {
-        pIcon = t.premiumReward.itemType === 'trail' ? '✨' : t.premiumReward.itemType === 'emote' ? '🎭' : '👕';
-        pLabel = t.premiumReward.name || 'Objet exclusif';
-      }
-      premiumHtml = `<div class="tier-premium"><div class="premium-icon">${pIcon}</div><div class="premium-label">${pLabel}</div></div>`;
+      const p = resolvePassReward(t.premiumReward);
+      premiumHtml = `<div class="tier-premium"><div class="premium-icon">${p.icon}</div><div class="premium-label">${p.label}</div></div>`;
     } else {
       premiumHtml = `<div class="tier-premium empty"><div class="premium-icon">—</div></div>`;
     }
-    
+
     return `<div class="pass-tier${milestone ? ' milestone' : ''}${claimed ? ' claimed' : ''}${!unlocked ? ' locked' : ''}">
       <div class="tier-header">Palier ${t.tier}</div>
       <div class="tier-reward-area">
-        <div class="tier-reward">${rewardIcon}</div>
-        <div class="tier-label">${label}</div>
+        <div class="tier-reward">${reward.icon}</div>
+        <div class="tier-label">${reward.label}</div>
         ${stateHtml}
       </div>
       ${premiumHtml}
@@ -651,14 +650,12 @@ document.getElementById('btnClaimAllPass').addEventListener('click', async () =>
   loadBattlePass();
 });
 
-// Bandeau "Se termine dans XjXXh" façon saison de battle pass : la saison
-// tourne simplement avec le mois calendaire (fin de mois = fin de saison),
-// aucune donnée serveur nécessaire pour cet habillage.
+// Bandeau "Se termine dans XjXXh"
 function updatePassCountdown() {
   const el = document.getElementById('passCountdown');
   if (!el) return;
   const now = new Date();
-  const end = new Date(now.getFullYear(), now.getMonth() + 1, 1); // 1er du mois prochain
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
   const ms = end - now;
   const days = Math.floor(ms / 86400000);
   const hours = Math.floor((ms % 86400000) / 3600000);
@@ -707,7 +704,7 @@ document.getElementById('btnClaimDaily').addEventListener('click', async () => {
   refreshDailyReward();
 });
 
-// ---- Stats en ligne (onglet Jouer) ----
+// ---- Stats en ligne ----
 async function refreshOnlineStats() {
   try {
     const data = await API.get('/api/stats/online');
@@ -716,7 +713,7 @@ async function refreshOnlineStats() {
   } catch { /* le serveur redémarre peut-être */ }
 }
 
-// ---- Réglages (sensibilité souris, volume vocal, effets) ----
+// ---- Réglages ----
 window.SOD_SETTINGS = (function () {
   const KEY = 'sod_settings';
   const DEFAULTS = { sensitivity: 1, voiceVolume: 1, reducedFx: false };
@@ -763,8 +760,6 @@ const paintCtx = paintCanvas.getContext('2d');
 let painting = false, brushColor = '#3a2a1a';
 const PALETTE = ['#3a2a1a', '#000000', '#ffffff', '#ff5b6a', '#4da3ff', '#7be0c0', '#ffd24d', '#c62828', '#5b2e8f', '#e9d3b0'];
 
-// Aperçu 3D en direct dans la modale de peinture : montre la tête peinte
-// posée sur le corps + traînée réellement équipés, pour styliser en connaissance de cause.
 let paintPreviewEngine = null;
 function getPaintPreviewEngine() {
   if (!paintPreviewEngine) paintPreviewEngine = createCharacterPreview(document.getElementById('paintPreviewCanvas'));
@@ -806,8 +801,6 @@ function clearPaintCanvas() {
 }
 clearPaintCanvas();
 
-// Recharge le skin peint déjà enregistré (s'il y en a un) dans le canevas de dessin,
-// pour pouvoir le retoucher au lieu de repartir d'une tête vierge à chaque ouverture.
 function loadExistingPaintIntoCanvas(dataUrl) {
   return new Promise((resolve) => {
     if (!dataUrl) { clearPaintCanvas(); resolve(); return; }
@@ -882,7 +875,7 @@ document.getElementById('btnResetPaint').addEventListener('click', async () => {
   showToast('Skin peint retiré.', 'info', 2600);
 });
 
-// ---- Fond animé du menu (particules discrètes) ----
+// ---- Fond animé ----
 (function initBackground() {
   const canvas = document.getElementById('bgCanvas');
   const ctx = canvas.getContext('2d');
@@ -893,7 +886,7 @@ document.getElementById('btnResetPaint').addEventListener('click', async () => {
   if (window.SOD_SETTINGS && window.SOD_SETTINGS.get().reducedFx) {
     ctx.fillStyle = '#0b0f16';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    return; // effets visuels réduits : pas de particules animées
+    return;
   }
   for (let i = 0; i < 60; i++) {
     particles.push({ x: Math.random() * innerWidth, y: Math.random() * innerHeight, r: 1 + Math.random() * 2, vy: 0.15 + Math.random() * 0.3, a: 0.1 + Math.random() * 0.3 });
@@ -919,7 +912,7 @@ document.getElementById('btnResetPaint').addEventListener('click', async () => {
   frame();
 })();
 
-// ---- Accès caché au panneau admin (Konami Code) ----
+// ---- Konami code ----
 (function initHiddenAdminAccess() {
   const sequence = ['ArrowUp','ArrowUp','ArrowDown','ArrowDown','ArrowLeft','ArrowRight','ArrowLeft','ArrowRight','KeyB','KeyA'];
   let progress = 0;
@@ -930,7 +923,6 @@ document.getElementById('btnResetPaint').addEventListener('click', async () => {
         progress = 0;
         const { user } = getSession();
         if (user && user.isAdmin) { location.href = 'admin.html'; }
-        // Si ce n'est pas un admin, on ne révèle rien (aucun message, aucun indice).
       }
     } else {
       progress = (e.code === sequence[0]) ? 1 : 0;
