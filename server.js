@@ -687,8 +687,6 @@ api.post('/admin/announce', requireAdmin, (req, res) => {
 const app = express();
 app.disable('x-powered-by');
 // Alias local : permet d'ouvrir le jeu directement sur http://localhost:3000/
-// (en production, le proxy frontal gère lui-même le préfixe port/3000).
-// Le fichier client officiel est servi par socket.io lui-même sur /socket.io/socket.io.js.
 app.get('/port/3000/socket.io/socket.io.js', (req, res) => res.redirect('/socket.io/socket.io.js'));
 app.use('/port/3000/api', api);
 app.use('/api', api);
@@ -706,10 +704,10 @@ const io = new Server(server, {
 
 // ============================== LOGIQUE DE JEU ==============================
 
-const rooms = new Map();          // roomId -> room
-const onlineUsers = new Set();    // noms d'utilisateurs connectés
-const socketRoom = new Map();     // socketId -> roomId
-const socketUser = new Map();     // socketId -> { username, user }
+const rooms = new Map();
+const onlineUsers = new Set();
+const socketRoom = new Map();
+const socketUser = new Map();
 
 const MAPS = ['jungle', 'arctic', 'desert'];
 const PLAY_RADIUS = 58;
@@ -729,6 +727,7 @@ function spawnPoint() {
   return { x: Math.cos(a) * d, z: Math.sin(a) * d };
 }
 
+// [FIX] Ajout d'une limite de bots par salon (botLimit)
 function makeRoom({ mode, map, hostSocketId }) {
   const id = 'r' + (roomSeq++);
   const code = mode === 'public' ? id.toUpperCase() : crypto.randomBytes(3).toString('hex').toUpperCase();
@@ -737,7 +736,8 @@ function makeRoom({ mode, map, hostSocketId }) {
     phase: 'lobby', minPlayers: mode === 'public' ? 2 : 2, maxPlayers: MAX_PLAYERS,
     bodies: [], controllerOf: {}, meta: {}, chests: [], resources: [], traps: [],
     hostSocketId, countdown: null, timerSeconds: null, swapAt: null,
-    tick: null, botTick: null, createdAt: Date.now(), botCounter: 0, ended: false
+    tick: null, botTick: null, createdAt: Date.now(), botCounter: 0, ended: false,
+    botLimit: mode === 'solo-test' ? 4 : 2  // [FIX] limite configurable
   };
   // coffres
   for (let i = 0; i < 14; i++) {
@@ -790,8 +790,15 @@ function addBody(room, sid, meta) {
   return body;
 }
 
+// [FIX] Ajout d'une limite de bots proportionnelle aux humains
 function addBot(room) {
   if (room.bodies.length >= room.maxPlayers) return null;
+  const botCount = room.bodies.filter(b => b.isBot).length;
+  const humanCount = room.bodies.filter(b => !b.isBot).length;
+  // Limite : botLimit du salon, et pas plus de bots que d'humains + 1
+  const maxBots = Math.min(room.botLimit || 2, Math.max(2, humanCount + 1));
+  if (botCount >= maxBots) return null;
+
   const p = spawnPoint();
   const bid = 'bot' + (++room.botCounter);
   const body = {
@@ -841,19 +848,26 @@ function scheduleSwap(room) {
   room.timerSeconds = seconds;
 }
 
+// [FIX] Sécurisation : on filtre bien les bots et on protège contre < 2 humains
 function executeSwap(room) {
-  const humanBodies = room.bodies.filter(b => b.alive && room.controllerOf[b.id] && !String(room.controllerOf[b.id]).startsWith('bot'));
+  const humanBodies = room.bodies.filter(b =>
+    b.alive &&
+    room.controllerOf[b.id] &&
+    !String(room.controllerOf[b.id]).startsWith('bot')
+  );
   if (humanBodies.length < 2) { scheduleSwap(room); return; }
   const controllers = humanBodies.map(b => room.controllerOf[b.id]);
-  // mélange de Fisher-Yates avec dérangement garanti : personne ne garde son corps
+  // mélange de Fisher-Yates avec dérangement garanti
   let shuffled;
+  let attempts = 0;
   do {
     shuffled = [...controllers];
     for (let i = shuffled.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
-  } while (shuffled.some((c, i) => c === controllers[i]));
+    attempts++;
+  } while (shuffled.some((c, i) => c === controllers[i]) && attempts < 20);
   const mapping = [];
   humanBodies.forEach((b, i) => {
     room.controllerOf[b.id] = shuffled[i];
@@ -984,12 +998,12 @@ function applyDamage(room, body, dmg, attackerSid, attackerLabel) {
   checkMatchEnd(room);
 }
 
+// [FIX] Sécurisation : vérifie bien que la partie est en cours
 function checkMatchEnd(room) {
   if (room.phase !== 'playing') return;
-  const alive = room.bodies.filter(b => b.alive);
-  const withController = alive.filter(b => room.controllerOf[b.id]);
-  if (withController.length > 1) return;
-  endMatch(room, withController.length === 1 ? withController[0] : null);
+  const alive = room.bodies.filter(b => b.alive && room.controllerOf[b.id]);
+  if (alive.length > 1) return;
+  endMatch(room, alive.length === 1 ? alive[0] : null);
 }
 
 function endMatch(room, winnerBody) {
@@ -1060,6 +1074,7 @@ function kickUser(username, reason) {
   onlineUsers.delete(username);
 }
 
+// [FIX] Suppression de la ligne inutile "delete room.trapsOwned"
 function leaveRoom(sid) {
   const roomId = socketRoom.get(sid);
   if (!roomId) return;
@@ -1074,7 +1089,6 @@ function leaveRoom(sid) {
   }
   const name = room.meta[sid] ? room.meta[sid].username : null;
   delete room.meta[sid];
-  delete room.trapsOwned;
   room.traps = room.traps.filter(t => t.ownerId !== sid);
   if (name) {
     for (const s of roomSockets(room)) io.to(s).emit('chatMessage', { system: true, text: `${name} a quitté le salon.` });
@@ -1131,12 +1145,12 @@ io.on('connection', (socket) => {
       if (Object.keys(room.meta).length >= room.maxPlayers) return cb({ error: 'Salon complet.' });
     } else if (opts.mode === 'create-private') {
       room = makeRoom({ mode: 'private', map: data.map, hostSocketId: socket.id });
-      const bots = Math.min(2, Math.max(0, parseInt(data.bots) || 0));
+      const bots = Math.min(2, Math.max(0, parseInt(data.bots) || 0)); // [FIX] limité à 2 en privé
       for (let i = 0; i < bots; i++) addBot(room);
     } else if (opts.mode === 'solo-admin') {
       if (!su.user.isAdmin) return cb({ error: 'Réservé aux administrateurs.' });
       room = makeRoom({ mode: 'solo-test', map: data.map, hostSocketId: socket.id });
-      const bots = Math.min(2, Math.max(0, parseInt(data.bots) || 0));
+      const bots = Math.min(4, Math.max(0, parseInt(data.bots) || 0)); // [FIX] jusqu'à 4 en solo
       for (let i = 0; i < bots; i++) addBot(room);
     }
 
@@ -1164,12 +1178,14 @@ io.on('connection', (socket) => {
     cb({ ok: true, room: publicRoom(room) });
   }
 
+  // [FIX] Vérifie qu'il y a au moins 1 joueur et que la phase est 'lobby'
   socket.on('startPrivateMatch', (data, cb) => {
     if (typeof cb !== 'function') cb = () => {};
     const room = rooms.get(socketRoom.get(socket.id));
     if (!room) return cb({ error: 'Aucun salon.' });
     if (room.hostSocketId !== socket.id) return cb({ error: 'Seul l\'hôte peut lancer la partie.' });
     if (room.phase !== 'lobby') return cb({ error: 'Partie déjà lancée.' });
+    if (Object.keys(room.meta).length < 1) return cb({ error: 'Il faut au moins 1 joueur.' });
     startCountdown(room);
     cb({ ok: true });
   });
@@ -1181,8 +1197,10 @@ io.on('connection', (socket) => {
     if (room.hostSocketId !== socket.id) return cb({ error: 'Seul l\'hôte peut ajouter des bots.' });
     const count = Math.min(3, Math.max(1, parseInt((data || {}).count) || 1));
     let added = 0;
-    for (let i = 0; i < count && room.bodies.length < room.maxPlayers; i++) { if (addBot(room)) added++; }
-    if (!added) return cb({ error: 'Salon complet.' });
+    for (let i = 0; i < count && room.bodies.length < room.maxPlayers; i++) {
+      if (addBot(room)) added++;
+    }
+    if (!added) return cb({ error: 'Salon complet ou limite de bots atteinte.' });
     broadcastState(room);
     cb({ ok: true, count: added });
   });
@@ -1190,7 +1208,6 @@ io.on('connection', (socket) => {
   socket.on('leaveRoom', () => leaveRoom(socket.id));
 
   // ---- mouvement ----
-  let lastMoveWarn = 0;
   socket.on('playerMove', (pos) => {
     const room = rooms.get(socketRoom.get(socket.id));
     if (!room || room.phase !== 'playing' || !pos) return;
@@ -1317,11 +1334,20 @@ io.on('connection', (socket) => {
     socket.to(room.id).emit('playerEmote', { bodyId: b.id, emoteId });
   });
 
+  // [FIX] Anti-spam chat : 5 messages max / 10 secondes
   socket.on('chatMessage', (text) => {
     const su = socketUser.get(socket.id);
     const room = rooms.get(socketRoom.get(socket.id));
     if (!su || !room) return;
     if (su.user.muted) { socket.emit('notification', { type: 'bad', text: 'Tu es muet (muté par un modérateur).' }); return; }
+    const now = Date.now();
+    const chatTimes = (socket.data.chatTimes || []).filter(t => now - t < 10000);
+    if (chatTimes.length >= 5) {
+      socket.emit('notification', { type: 'bad', text: 'Trop de messages, ralentis !' });
+      return;
+    }
+    chatTimes.push(now);
+    socket.data.chatTimes = chatTimes;
     const clean = String(text).slice(0, 200).trim();
     if (!clean) return;
     io.to(room.id).emit('chatMessage', { username: su.user.username, text: clean });
@@ -1336,7 +1362,7 @@ io.on('connection', (socket) => {
   });
   socket.on('voice:signal', ({ to, data } = {}) => {
     if (!to || !io.sockets.sockets.has(to)) return;
-    if (socket.data.voiceRoom !== socketRoom.get(to)) return; // sécurité : même salon uniquement
+    if (socket.data.voiceRoom !== socketRoom.get(to)) return;
     io.to(to).emit('voice:signal', { from: socket.id, data });
   });
   socket.on('voice:leave', () => {
