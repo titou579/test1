@@ -1,20 +1,12 @@
 // public/js/game.js — moteur de jeu 3D (Three.js) côté client.
-// Version 0.9.1 : corrections de bugs (minimap pièges, voix, attaque).
+// Version 0.9.2 : corrections focus clavier, pointer-events, drag-look.
 
 (function () {
-  // Auto-detect backend URL from the socket.io.js script tag.
-  (function() {
-    var script = document.querySelector('script[src*="socket.io/socket.io.js"]');
-    if (script && script.src) {
-      window.BACKEND = script.src.replace(/\/socket\.io\/socket\.io\.js.*$/, '');
-    }
-  })();
+  // [FIX] Same-origin : le serveur Node sert tout au même endroit
+  window.BACKEND = '';
 
-  // Read session data from URL hash (works in sandboxed iframes where localStorage is blocked)
-  // Falls back to localStorage/sessionStorage when running locally
   let session = null, token = null, joinIntent = null;
 
-  // Try URL hash first (set by goToGame in client.js)
   if (location.hash.length > 1) {
     try {
       const payload = JSON.parse(decodeURIComponent(location.hash.slice(1)));
@@ -24,7 +16,6 @@
     } catch(e) {}
   }
 
-  // Fallback to storage (for local development)
   if (!token) {
     try { token = localStorage.getItem('sod_token'); } catch(e) {}
   }
@@ -37,22 +28,8 @@
 
   if (!session || !token || !joinIntent) { location.href = 'index.html'; return; }
 
-  // Parse BACKEND URL into host + path for Socket.io
-  let socketUrl = window.BACKEND || '';
-  let socketPath = '/socket.io/';
-  const isLocalDev = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-  if (socketUrl && !isLocalDev) {
-    try {
-      const u = new URL(socketUrl);
-      socketUrl = u.origin;
-      socketPath = u.pathname.replace(/\/$/, '') + '/socket.io/';
-    } catch(e) {}
-  } else {
-    socketUrl = '';
-  }
-
-  const socket = io(socketUrl, {
-    path: socketPath,
+  const socket = io('', {
+    path: '/socket.io/',
     transports: ['polling', 'websocket'],
     upgrade: true,
     reconnection: true,
@@ -62,6 +39,19 @@
   let mySocketId = null;
   let room = null;
   let myUsername = session.username;
+
+  // ===== [FIX] Force le focus clavier sur la fenêtre =====
+  function forceWindowFocus() {
+    try { window.focus(); } catch(e) {}
+    const ae = document.activeElement;
+    if (ae && typeof ae.blur === 'function' && ae !== document.body) {
+      try { ae.blur(); } catch(e) {}
+    }
+  }
+  window.addEventListener('load', forceWindowFocus);
+  window.addEventListener('focus', forceWindowFocus);
+  setTimeout(forceWindowFocus, 200);
+  setTimeout(forceWindowFocus, 1200);
 
   // ---------------- THREE.JS SETUP ----------------
   const holder = document.getElementById('canvasHolder');
@@ -76,7 +66,6 @@
   renderer.toneMappingExposure = 1.1;
   holder.appendChild(renderer.domElement);
 
-  // Rig : contient la caméra, gère le yaw/pitch
   const rig = new THREE.Object3D();
   rig.add(camera);
   camera.position.set(0, 1.7, 0);
@@ -979,36 +968,85 @@
   const GRAVITY = 22;
   const JUMP_FORCE = 9;
 
-  document.addEventListener('keydown', (e) => {
-    if (keys['__chatting']) { if (e.code === 'Tab') e.preventDefault(); return; }
+  // ===== [FIX] Détection des champs de saisie =====
+  function isTypingInField() {
+    const el = document.activeElement;
+    if (!el) return false;
+    const tag = el.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || el.isContentEditable;
+  }
+
+  // ===== [FIX] Écoute clavier sur window avec capture =====
+  window.addEventListener('keydown', (e) => {
+    if (keys['__chatting'] || isTypingInField()) {
+      if (e.code === 'Tab') e.preventDefault();
+      return;
+    }
     keys[e.code] = true;
     if (e.code === 'Tab') { e.preventDefault(); showLeaderboard(true); }
-    if (e.code === 'ShiftLeft') isSprinting = true;
+    if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') isSprinting = true;
     if (e.code === 'Space') { e.preventDefault(); if (isGrounded) { jumpVelocity = JUMP_FORCE; isGrounded = false; } }
     if (e.code === 'KeyQ') { e.preventDefault(); tryAttack(); }
     onActionKey(e.code);
-  });
-  document.addEventListener('keyup', (e) => {
+  }, { capture: true });
+
+  window.addEventListener('keyup', (e) => {
     keys[e.code] = false;
     if (e.code === 'Tab') showLeaderboard(false);
-    if (e.code === 'ShiftLeft') isSprinting = false;
+    if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') isSprinting = false;
+  }, { capture: true });
+
+  // Relâche toutes les touches si la fenêtre perd le focus
+  window.addEventListener('blur', () => {
+    for (const k in keys) keys[k] = false;
+    isSprinting = false;
   });
 
-  renderer.domElement.addEventListener('click', () => {
-    if (document.pointerLockElement !== renderer.domElement) {
-      try { renderer.domElement.requestPointerLock(); } catch(e) {}
-    }
-    else tryAttack();
-  });
+  // ===== [FIX] Gestion clic / pointer lock / drag-look =====
+  let leftDragging = false;
+  let rightDragging = false;
+  let lastMouseX = 0, lastMouseY = 0;
+
+  renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
 
   renderer.domElement.addEventListener('mousedown', (e) => {
+    if (document.pointerLockElement === renderer.domElement) {
+      if (e.button === 0) tryAttack();
+      return;
+    }
+
     if (e.button === 0) {
-      if (document.pointerLockElement !== renderer.domElement) {
-        tryAttack();
-      }
+      try {
+        const p = renderer.domElement.requestPointerLock();
+        if (p && typeof p.catch === 'function') p.catch(() => {});
+      } catch(err) {}
+      // Drag-look de secours si le pointer lock n'est pas actif
+      leftDragging = true;
+      lastMouseX = e.clientX;
+      lastMouseY = e.clientY;
+    }
+
+    if (e.button === 2 || e.button === 1) {
+      rightDragging = true;
+      lastMouseX = e.clientX;
+      lastMouseY = e.clientY;
+      e.preventDefault();
     }
   });
 
+  document.addEventListener('mouseup', (e) => {
+    if (e.button === 0) leftDragging = false;
+    if (e.button === 2 || e.button === 1) rightDragging = false;
+  });
+
+  // Curseur visuel selon le mode
+  document.addEventListener('pointerlockchange', () => {
+    const locked = document.pointerLockElement === renderer.domElement;
+    renderer.domElement.style.cursor = locked ? 'none' : 'crosshair';
+  });
+  renderer.domElement.style.cursor = 'crosshair';
+
+  // --- Mouse look avec pointer lock (mode FPS standard) ---
   document.addEventListener('mousemove', (e) => {
     if (document.pointerLockElement !== renderer.domElement) return;
     const sens = (window.SOD_SETTINGS ? window.SOD_SETTINGS.get().sensitivity : 1) * 0.0022;
@@ -1019,22 +1057,10 @@
     camera.rotation.x = pitch;
   });
 
-  let rightDragging = false;
-  let lastMouseX = 0, lastMouseY = 0;
-  renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
-  renderer.domElement.addEventListener('mousedown', (e) => {
-    if (e.button === 2 && document.pointerLockElement !== renderer.domElement) {
-      rightDragging = true;
-      lastMouseX = e.clientX;
-      lastMouseY = e.clientY;
-      e.preventDefault();
-    }
-  });
-  document.addEventListener('mouseup', (e) => {
-    if (e.button === 2) rightDragging = false;
-  });
+  // --- Mouse look avec drag (clic gauche OU droit maintenu, sans pointer lock) ---
   document.addEventListener('mousemove', (e) => {
-    if (!rightDragging || document.pointerLockElement === renderer.domElement) return;
+    if (document.pointerLockElement === renderer.domElement) return;
+    if (!leftDragging && !rightDragging) return;
     const sens = (window.SOD_SETTINGS ? window.SOD_SETTINGS.get().sensitivity : 1) * 0.004;
     const dx = e.clientX - lastMouseX;
     const dy = e.clientY - lastMouseY;
@@ -1055,6 +1081,7 @@
     if (keys['ArrowDown']) { pitch = Math.max(-1.2, pitch - camSpeed); camera.rotation.x = pitch; }
   }
 
+  // --- Touch controls ---
   let touchLookId = null;
   let touchLookLastX = 0, touchLookLastY = 0;
   let touchMoveId = null;
@@ -1214,7 +1241,7 @@
       if (diff < 1.0 && score > bestScore) { bestScore = score; best = body; }
     }
     if (best) {
-      socket.emit('attack', { targetBodyId: best.id });  // [FIX] plus de "damage"
+      socket.emit('attack', { targetBodyId: best.id });
       SFX.hit();
       spawnHitParticles(best.x, 1.2, best.z, 0xff4444);
       spawnDamageNumber(best.x, 1.2, best.z, weaponDamage(b.weapon));
@@ -1367,7 +1394,7 @@
       minimapCtx.fillRect(mx - 1.5, my - 1.5, 3, 3);
     }
 
-    // [FIX] Corrigé : ownerId (et non ownerSocketId)
+    // [FIX] ownerId (et non ownerSocketId)
     for (const trap of room.traps) {
       if (trap.ownerId !== mySocketId) continue;
       const mx = size / 2 + ((trap.x - cx) / range) * (size / 2);
@@ -1489,10 +1516,41 @@
   function escapeHtml(s) { return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 
   // ---------------- SOCKET EVENTS ----------------
+  socket.on('connect_error', (err) => {
+    console.error('Socket connect_error:', err);
+    const t = document.getElementById('startTitle');
+    const s = document.getElementById('startSub');
+    if (t) t.textContent = '❌ Connexion impossible';
+    if (s) s.textContent = 'Le serveur ne répond pas. Détail : ' + (err.message || 'inconnu');
+  });
+
   socket.on('connect', () => {
     mySocketId = socket.id;
-    socket.emit('authenticate', token);
-    startFlow();
+    socket.emit('authenticate', token, (res) => {
+      if (!res || res.error) {
+        const t = document.getElementById('startTitle');
+        const s = document.getElementById('startSub');
+        if (t) t.textContent = '🔒 Session expirée';
+        if (s) s.textContent = (res && res.error) ? res.error + ' — Reconnecte-toi depuis le menu.' : 'Reconnecte-toi depuis le menu.';
+        setTimeout(() => {
+          if (!document.getElementById('btnReturnToMenu')) {
+            const btn = document.createElement('button');
+            btn.id = 'btnReturnToMenu';
+            btn.className = 'btn primary';
+            btn.textContent = '← Se reconnecter';
+            btn.onclick = () => {
+              try { localStorage.clear(); } catch(e) {}
+              document.cookie = 'sod_token=; max-age=0';
+              document.cookie = 'sod_user=; max-age=0';
+              location.href = 'index.html';
+            };
+            document.getElementById('startOverlay').appendChild(btn);
+          }
+        }, 100);
+        return;
+      }
+      startFlow();
+    });
   });
 
   function startFlow() {
@@ -1684,7 +1742,6 @@
   });
 
   // ---------------- CHAT VOCAL ----------------
-  // [FIX] Protection contre window.SwapVoice undefined
   const voiceBtn = document.getElementById('voiceBtn');
   let voiceActive = false;
   voiceBtn.addEventListener('click', async () => {
