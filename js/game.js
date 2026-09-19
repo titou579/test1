@@ -67,7 +67,12 @@
   holder.appendChild(renderer.domElement);
 
   const rig = new THREE.Object3D();
-  rig.add(camera);
+  // [FIX] La caméra THREE regarde vers -Z, alors que le reste du jeu (déplacement, attaque, minimap,
+  // orientation des joueurs) considère qu'à yaw = 0 on regarde vers +Z : on la retourne de 180° via un pivot.
+  const camPivot = new THREE.Object3D();
+  camPivot.rotation.y = Math.PI;
+  rig.add(camPivot);
+  camPivot.add(camera);
   camera.position.set(0, 1.7, 0);
   scene.add(rig);
 
@@ -599,7 +604,8 @@
   const weaponGroup = new THREE.Group();
   weaponGroup.position.set(0.35, -0.3, -0.6);
   camera.add(weaponGroup);
-  scene.add(camera);
+  // [FIX] Pas de scene.add(camera) ici : ça détachait la caméra du "rig" (rig.add plus haut),
+  // donc ZQSD et la rotation souris déplaçaient le rig... mais plus la caméra.
 
   let currentWeaponMesh = null;
   let weaponSwingTime = 0;
@@ -1261,7 +1267,7 @@
     const b = myBody();
     if (!b || room.phase !== 'playing') return;
     const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
-    const right = new THREE.Vector3(Math.sin(yaw + Math.PI / 2), 0, Math.cos(yaw + Math.PI / 2));
+    const right = new THREE.Vector3(Math.sin(yaw - Math.PI / 2), 0, Math.cos(yaw - Math.PI / 2));
     let move = new THREE.Vector3();
     if (keys['KeyW'] || touchMoveActive.up) move.add(forward);
     if (keys['KeyS'] || touchMoveActive.down) move.sub(forward);
@@ -1281,9 +1287,9 @@
 
     if (isMoving && isGrounded) {
       bobTime += dt * (isSprinting ? 12 : 8);
-      camera.position.y = 1.7 + b.y + Math.sin(bobTime) * 0.06;
+      camera.position.y = 1.7 + Math.sin(bobTime) * 0.06;
     } else {
-      camera.position.y = THREE.MathUtils.lerp(camera.position.y, 1.7 + b.y, dt * 8);
+      camera.position.y = THREE.MathUtils.lerp(camera.position.y, 1.7, dt * 8);
     }
 
     if (isMoving) {
